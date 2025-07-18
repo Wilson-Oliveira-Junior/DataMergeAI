@@ -1,228 +1,3 @@
-// Handlers para o menu Dados
-  function handleClassificar() {
-    const { col } = selectedCell;
-    const sorted = [...cellData].sort((a, b) => {
-      if (a[col] < b[col]) return -1;
-      if (a[col] > b[col]) return 1;
-      return 0;
-    });
-    pushHistory(sorted);
-  }
-  function handleCriarFiltro() {
-    const { col } = selectedCell;
-    const valor = window.prompt('Filtrar por valor na coluna selecionada:');
-    if (valor !== null) {
-      const filtrado = cellData.filter(row => row[col] === valor);
-      pushHistory(filtrado.concat(Array(rows.length - filtrado.length).fill(Array(columns.length).fill(''))));
-    }
-  }
-  function handleValidacaoDados() {
-    const { row, col } = selectedCell;
-    const restricao = window.prompt('Valor permitido para esta célula:');
-    if (restricao !== null) {
-      if (cellData[row][col] !== restricao) {
-        alert('Valor inválido!');
-      } else {
-        alert('Valor válido!');
-      }
-    }
-  }
-  function handleRemoverDuplicatas() {
-    const uniqueRows = [];
-    const seen = new Set();
-    for (const row of cellData) {
-      const key = row.join('|');
-      if (!seen.has(key)) {
-        uniqueRows.push(row);
-        seen.add(key);
-      }
-    }
-    pushHistory(uniqueRows.concat(Array(rows.length - uniqueRows.length).fill(Array(columns.length).fill(''))));
-  }
-  function handleDividirTextoColunas() {
-    const { row, col } = selectedCell;
-    const texto = cellData[row][col];
-    const partes = texto.split(/\s+/);
-    const newData = cellData.map(arr => [...arr]);
-    partes.forEach((parte, idx) => {
-      if (col + idx < columns.length) newData[row][col + idx] = parte;
-    });
-    pushHistory(newData);
-  }
-  function handleProtegerIntervalo() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setCellStyles(s => ({ ...s, [key]: { ...s[key], protected: true } }));
-    alert('Célula protegida contra edição (simulação).');
-  }
-  const dataMenuHandlers = {
-    'Classificar': handleClassificar,
-    'Criar filtro': handleCriarFiltro,
-    'Validação de dados': handleValidacaoDados,
-    'Remover duplicatas': handleRemoverDuplicatas,
-    'Dividir texto em colunas': handleDividirTextoColunas,
-    'Proteger intervalo': handleProtegerIntervalo
-  };
-  // Estado para estilos de célula
-  const [cellStyles, setCellStyles] = useState({}); // {row-col: {bold, italic, underline, strike, color, bg, align, format, wrap, merged}}
-
-  // Handlers para o menu Formatar
-  function setStyleForCell(key, styleObj) {
-    setCellStyles(s => ({ ...s, [key]: { ...s[key], ...styleObj } }));
-  }
-  function handleNegrito() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { bold: !(cellStyles[key]?.bold) });
-  }
-  function handleItalico() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { italic: !(cellStyles[key]?.italic) });
-  }
-  function handleSublinhado() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { underline: !(cellStyles[key]?.underline) });
-  }
-  function handleTachado() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { strike: !(cellStyles[key]?.strike) });
-  }
-  function handleCorTexto() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    const cor = window.prompt('Cor do texto (ex: #ff0000 ou red)', cellStyles[key]?.color || '');
-    if (cor) setStyleForCell(key, { color: cor });
-  }
-  function handleCorPreenchimento() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    const cor = window.prompt('Cor de preenchimento (ex: #ffff00 ou yellow)', cellStyles[key]?.bg || '');
-    if (cor) setStyleForCell(key, { bg: cor });
-  }
-  function handleFormatarMoeda() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { format: 'moeda' });
-  }
-  function handleFormatarPorcentagem() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { format: 'porcentagem' });
-  }
-  function handleFormatarNumero() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { format: 'numero' });
-  }
-  function handleAlinhar() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    const alinhar = window.prompt('Alinhar: esquerda, centro, direita', cellStyles[key]?.align || 'esquerda');
-    if (alinhar) setStyleForCell(key, { align: alinhar });
-  }
-  function handleQuebraTexto() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { wrap: !(cellStyles[key]?.wrap) });
-  }
-  function handleMesclarCelulas() {
-    const key = `${selectedCell.row}-${selectedCell.col}`;
-    setStyleForCell(key, { merged: true });
-    // Simulação: só marca a célula como mesclada
-  }
-  const formatMenuHandlers = {
-    'Negrito': handleNegrito,
-    'Itálico': handleItalico,
-    'Sublinhado': handleSublinhado,
-    'Tachado': handleTachado,
-    'Cor do texto': handleCorTexto,
-    'Cor de preenchimento': handleCorPreenchimento,
-    'Formatar como moeda': handleFormatarMoeda,
-    'Formatar como porcentagem': handleFormatarPorcentagem,
-    'Formatar como número': handleFormatarNumero,
-    'Alinhar': handleAlinhar,
-    'Quebra de texto': handleQuebraTexto,
-    'Mesclar células': handleMesclarCelulas
-  };
-  // Handlers para o menu Inserir
-  function handleInserirLinhaAcima() {
-    const { row } = selectedCell;
-    const newData = cellData.map(arr => [...arr]);
-    newData.splice(row, 0, Array(columns.length).fill(''));
-    pushHistory(newData.slice(0, rows.length));
-  }
-  function handleInserirLinhaAbaixo() {
-    const { row } = selectedCell;
-    const newData = cellData.map(arr => [...arr]);
-    newData.splice(row + 1, 0, Array(columns.length).fill(''));
-    pushHistory(newData.slice(0, rows.length));
-  }
-  function handleInserirColunaEsquerda() {
-    const { col } = selectedCell;
-    const newData = cellData.map(row => {
-      const r = [...row];
-      r.splice(col, 0, '');
-      return r.slice(0, columns.length);
-    });
-    pushHistory(newData);
-  }
-  function handleInserirColunaDireita() {
-    const { col } = selectedCell;
-    const newData = cellData.map(row => {
-      const r = [...row];
-      r.splice(col + 1, 0, '');
-      return r.slice(0, columns.length);
-    });
-    pushHistory(newData);
-  }
-  function handleInserirCelula() {
-    const { row, col } = selectedCell;
-    const newData = cellData.map(arr => [...arr]);
-    for (let r = rows.length - 1; r > row; r--) {
-      newData[r][col] = newData[r - 1][col];
-    }
-    newData[row][col] = '';
-    pushHistory(newData);
-  }
-  function handleInserirImagem() {
-    window.prompt('Inserir imagem (simulação): informe a URL da imagem');
-  }
-  const [cellTypes, setCellTypes] = useState({}); // {row-col: {type, value}}
-  const [showChartModal, setShowChartModal] = useState(false);
-  const [chartData, setChartData] = useState('');
-  const [commentText, setCommentText] = useState('');
-  const [noteText, setNoteText] = useState('');
-
-  function handleInserirGrafico() {
-    const dados = window.prompt('Inserir gráfico (simulação): informe dados ou tipo de gráfico');
-    if (dados) {
-      setChartData(dados);
-      setShowChartModal(true);
-      setCellTypes(t => ({ ...t, [`${selectedCell.row}-${selectedCell.col}`]: { type: 'chart', value: dados } }));
-    }
-  }
-  function handleInserirCaixaSelecao() {
-    setCellTypes(t => ({ ...t, [`${selectedCell.row}-${selectedCell.col}`]: { type: 'checkbox', value: false } }));
-  }
-  function handleToggleCheckbox(row, col) {
-    setCellTypes(t => ({ ...t, [`${row}-${col}`]: { type: 'checkbox', value: !t[`${row}-${col}`]?.value } }));
-  }
-  function handleInserirLink() {
-    const url = window.prompt('Inserir link (simulação): informe a URL');
-    if (url) setCellTypes(t => ({ ...t, [`${selectedCell.row}-${selectedCell.col}`]: { type: 'link', value: url } }));
-  }
-  function handleInserirComentario() {
-    const texto = window.prompt('Inserir comentário (simulação): texto do comentário');
-    if (texto) setCellTypes(t => ({ ...t, [`${selectedCell.row}-${selectedCell.col}`]: { type: 'comment', value: texto } }));
-  }
-  function handleInserirNota() {
-    const texto = window.prompt('Inserir nota (simulação): texto da nota');
-    if (texto) setCellTypes(t => ({ ...t, [`${selectedCell.row}-${selectedCell.col}`]: { type: 'note', value: texto } }));
-  }
-  const insertMenuHandlers = {
-    'Linha acima': handleInserirLinhaAcima,
-    'Linha abaixo': handleInserirLinhaAbaixo,
-    'Coluna à esquerda': handleInserirColunaEsquerda,
-    'Coluna à direita': handleInserirColunaDireita,
-    'Células': handleInserirCelula,
-    'Imagem': handleInserirImagem,
-    'Gráfico': handleInserirGrafico,
-    'Caixa de seleção': handleInserirCaixaSelecao,
-    'Link': handleInserirLink,
-    'Comentário': handleInserirComentario,
-    'Nota': handleInserirNota
-  };
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { MdUndo, MdRedo, MdPrint, MdFormatPaint, MdAttachMoney, MdPercent, MdExposureNeg1, MdExposurePlus1, MdFormatBold, MdFormatItalic, MdStrikethroughS, MdFormatColorText, MdFormatColorFill, MdBorderAll, MdMergeType, MdFormatAlignLeft, MdFormatAlignCenter, MdFormatAlignRight, MdWrapText, MdInsertLink, MdInsertComment, MdInsertChart, MdFilterList } from 'react-icons/md';
@@ -239,6 +14,10 @@ function createEmptyData() {
 
 export default function MainContent() {
   const [cellData, setCellData] = useState(createEmptyData());
+  const [cellTypes, setCellTypes] = useState({});
+  const [cellStyles, setCellStyles] = useState({});
+  const [showChartModal, setShowChartModal] = useState(false);
+  const [chartData, setChartData] = useState('');
   const [sheetName, setSheetName] = useState('Book1');
   const [showVersions, setShowVersions] = useState(false);
   const [versions, setVersions] = useState([]);
@@ -654,7 +433,49 @@ const menuOptions = {
     'Acessibilidade'
   ],
 };
+
 const menuItems = Object.keys(menuOptions);
+
+  // Handlers para o menu Inserir
+  const insertMenuHandlers = {
+    'Linha acima': () => alert('Inserir linha acima (simulação)'),
+    'Linha abaixo': () => alert('Inserir linha abaixo (simulação)'),
+    'Coluna à esquerda': () => alert('Inserir coluna à esquerda (simulação)'),
+    'Coluna à direita': () => alert('Inserir coluna à direita (simulação)'),
+    'Células': () => alert('Inserir células (simulação)'),
+    'Imagem': () => alert('Inserir imagem (simulação)'),
+    'Gráfico': () => setShowChartModal(true),
+    'Caixa de seleção': () => alert('Inserir caixa de seleção (simulação)'),
+    'Link': () => alert('Inserir link (simulação)'),
+    'Comentário': () => alert('Inserir comentário (simulação)'),
+    'Nota': () => alert('Inserir nota (simulação)')
+  };
+
+  // Handlers para o menu Formatar
+  const formatMenuHandlers = {
+    'Negrito': () => alert('Formatar como negrito (simulação)'),
+    'Itálico': () => alert('Formatar como itálico (simulação)'),
+    'Sublinhado': () => alert('Formatar como sublinhado (simulação)'),
+    'Tachado': () => alert('Formatar como tachado (simulação)'),
+    'Cor do texto': () => alert('Alterar cor do texto (simulação)'),
+    'Cor de preenchimento': () => alert('Alterar cor de preenchimento (simulação)'),
+    'Formatar como moeda': () => alert('Formatar como moeda (simulação)'),
+    'Formatar como porcentagem': () => alert('Formatar como porcentagem (simulação)'),
+    'Formatar como número': () => alert('Formatar como número (simulação)'),
+    'Alinhar': () => alert('Alterar alinhamento (simulação)'),
+    'Quebra de texto': () => alert('Alterar quebra de texto (simulação)'),
+    'Mesclar células': () => alert('Mesclar células (simulação)')
+  };
+
+  // Handlers para o menu Dados
+  const dataMenuHandlers = {
+    'Classificar': () => alert('Classificar dados (simulação)'),
+    'Criar filtro': () => alert('Criar filtro (simulação)'),
+    'Validação de dados': () => alert('Validação de dados (simulação)'),
+    'Remover duplicatas': () => alert('Remover duplicatas (simulação)'),
+    'Dividir texto em colunas': () => alert('Dividir texto em colunas (simulação)'),
+    'Proteger intervalo': () => alert('Proteger intervalo (simulação)')
+  };
 
 
   return (
@@ -941,7 +762,10 @@ const menuItems = Object.keys(menuOptions);
         </div>
       )}
       </div>
-      <ChatBox username={sheetName} />
+      {/* ChatBox integrado ao rodapé da planilha */}
+      <div style={{ width: '100%', marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+        <ChatBox username={sheetName} />
+      </div>
 
       {/* Modal de versões */}
       {showVersions && (
