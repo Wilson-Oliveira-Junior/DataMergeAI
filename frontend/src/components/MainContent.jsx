@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { MdUndo, MdRedo, MdPrint, MdFormatPaint, MdAttachMoney, MdPercent, MdExposureNeg1, MdExposurePlus1, MdFormatBold, MdFormatItalic, MdStrikethroughS, MdFormatColorText, MdFormatColorFill, MdBorderAll, MdMergeType, MdFormatAlignLeft, MdFormatAlignCenter, MdFormatAlignRight, MdWrapText, MdInsertLink, MdInsertComment, MdInsertChart, MdFilterList } from 'react-icons/md';
 import './MainContent.css';
+import './Modal.css';
 import ChatBox from './ChatBox';
 import './ChatBox.css';
 
@@ -747,17 +748,19 @@ const menuItems = Object.keys(menuOptions);
       )}
       {/* Modal Pesquisar e Substituir */}
       {showFindReplace && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowFindReplace(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Pesquisar e substituir</h3>
+        <div className="modal" onClick={() => setShowFindReplace(false)}>
+          <div className="modal-content" style={{maxWidth:400}} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">Pesquisar e substituir</div>
             <div>
               <input placeholder="Pesquisar por..." value={findValue} onChange={e => setFindValue(e.target.value)} />
             </div>
             <div style={{ marginTop: 8 }}>
               <input placeholder="Substituir por..." value={replaceValue} onChange={e => setReplaceValue(e.target.value)} />
             </div>
-            <button style={{ marginTop: 16 }} onClick={doFindReplace}>Substituir tudo</button>
-            <button style={{ marginLeft: 8 }} onClick={() => setShowFindReplace(false)}>Cancelar</button>
+            <div className="modal-actions">
+              <button onClick={doFindReplace}>Substituir tudo</button>
+              <button onClick={() => setShowFindReplace(false)}>Cancelar</button>
+            </div>
           </div>
         </div>
       )}
