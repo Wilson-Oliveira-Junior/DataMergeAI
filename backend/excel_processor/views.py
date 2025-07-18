@@ -12,7 +12,7 @@ def exportar_enviar_email(request):
     if not data or not to_email:
         return Response({'error': 'Dados ou e-mail de destino ausentes.'}, status=400)
     try:
-        # Converte dados para Excel temporário
+        # Converte dados para Excel temporï¿½rio
         arr = json.loads(data)
         import pandas as pd
         df = pd.DataFrame(arr)
@@ -33,7 +33,7 @@ from .models import Version
 from .serializers import VersionSerializer
 from rest_framework import viewsets
 
-# ViewSet para histórico de versões
+# ViewSet para histï¿½rico de versï¿½es
 class VersionViewSet(viewsets.ModelViewSet):
     queryset = Version.objects.all()
     serializer_class = VersionSerializer
@@ -43,8 +43,34 @@ from .serializers import ChatMessageSerializer
 
 # ViewSet para chat
 class ChatMessageViewSet(viewsets.ModelViewSet):
+    from rest_framework.decorators import action
+
+    @action(detail=False, methods=['post'])
+    def clear(self, request):
+        ChatMessage.objects.all().delete()
+        return Response({'success': True, 'detail': 'Chat limpo!'}, status=204)
+    def destroy(self, request, *args, **kwargs):
+        ChatMessage.objects.all().delete()
+        return Response({'success': True, 'detail': 'Chat limpo!'}, status=204)
     queryset = ChatMessage.objects.all()
     serializer_class = ChatMessageSerializer
+
+    def perform_create(self, serializer):
+        # Save user message
+        instance = serializer.save()
+        # Bot response phrases
+        import random
+        bot_phrases = [
+            'Recebido! Como posso ajudar?',
+            'Sua mensagem foi registrada.',
+            'Ola! Precisa de algo mais?',
+            'Processando sua solicitacao...',
+            'Mensagem recebida com sucesso.'
+        ]
+        ChatMessage.objects.create(
+            user='Bot',
+            message=random.choice(bot_phrases)
+        )
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -70,7 +96,7 @@ class ExcelFileUploadView(APIView):
             file_path = excel_file.file.path
             try:
                 df = pd.read_excel(file_path)
-                df_clean = df.drop_duplicates()  # Não remove linhas vazias automaticamente
+                df_clean = df.drop_duplicates()  # Nï¿½o remove linhas vazias automaticamente
                 dataframes.append(df_clean)
                 file_infos.append({
                     'id': excel_file.id,
@@ -101,7 +127,7 @@ class ExcelFileUploadView(APIView):
             # Merge seguro (outer join)
             merged = pd.merge(dataframes[0], dataframes[1], on=merge_col, how='outer', suffixes=('_1', '_2'), indicator=True)
             merged_preview = merged.head(5).to_dict(orient='records')
-            # Relatório do merge
+            # Relatï¿½rio do merge
             added = merged[merged['_merge'] == 'right_only'].shape[0]
             removed = merged[merged['_merge'] == 'left_only'].shape[0]
             matched = merged[merged['_merge'] == 'both'].shape[0]
