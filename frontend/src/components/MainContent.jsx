@@ -5,15 +5,36 @@ import './MainContent.css';
 import './Modal.css';
 import ChatBox from './ChatBox';
 import './ChatBox.css';
+import ChartModal from './modals/ChartModal';
+import FormModal from './modals/FormModal';
+import MacroModal from './modals/MacroModal';
+import ScriptModal from './modals/ScriptModal';
+import ReviewModal from './modals/ReviewModal';
+import AccessibilityModal from './modals/AccessibilityModal';
+import FindReplaceModal from './modals/FindReplaceModal';
+import VersionsModal from './modals/VersionsModal';
+import DetailsModal from './modals/DetailsModal';
+import ConfigModal from './modals/ConfigModal';
+import ExcelMenuBar from './ExcelMenuBar';
 
-// Função utilitária para criar matriz vazia
-const columns = ['A','B','C', 'D','E','F','G','H','I','J','K'];
-const rows = Array.from({length: 100}, (_, i) => i + 1);
-function createEmptyData() {
-  return Array.from({ length: rows.length }, () => Array(columns.length).fill(''));
+// Função utilitária para gerar cabeçalhos de coluna estilo Excel
+function getColumnLabel(n) {
+  let label = '';
+  while (n >= 0) {
+    label = String.fromCharCode((n % 26) + 65) + label;
+    n = Math.floor(n / 26) - 1;
+  }
+  return label;
 }
 
 export default function MainContent() {
+  const [numRows, setNumRows] = useState(100);
+  const [numCols, setNumCols] = useState(26);
+  const columns = Array.from({ length: numCols }, (_, i) => getColumnLabel(i));
+  const rows = Array.from({ length: numRows }, (_, i) => i + 1);
+  function createEmptyData(rowsLen = numRows, colsLen = numCols) {
+    return Array.from({ length: rowsLen }, () => Array(colsLen).fill(''));
+  }
   const [cellData, setCellData] = useState(createEmptyData());
   const [cellTypes, setCellTypes] = useState({});
   const [cellStyles, setCellStyles] = useState({});
@@ -351,6 +372,110 @@ export default function MainContent() {
   function handleAcessibilidade() {
     setShowAccessibilityModal(true);
   }
+  // Ferramentas: Criar formulário real
+  function handleCriarFormulario() {
+    const campos = window.prompt('Quais campos? (separados por vírgula)', 'Nome, E-mail, Telefone');
+    if (!campos) return;
+    const fields = campos.split(',').map(f => f.trim());
+    const values = fields.map(f => window.prompt(`Valor para ${f}:`, ''));
+    // Adiciona nova linha na planilha
+    setCellData(data => {
+      const newRow = Array(numCols).fill('');
+      for (let i = 0; i < fields.length && i < numCols; i++) newRow[i] = values[i];
+      return [...data, newRow];
+    });
+    setNumRows(r => r + 1);
+  }
+
+  // Ferramentas: Macros (gravar e executar)
+  const [macro, setMacro] = useState([]);
+  const [gravandoMacro, setGravandoMacro] = useState(false);
+  function handleMacros() {
+    if (!gravandoMacro) {
+      setMacro([]);
+      setGravandoMacro(true);
+      alert('Gravação de macro iniciada. Todas as edições serão gravadas. Clique novamente para parar.');
+    } else {
+      setGravandoMacro(false);
+      alert('Macro gravada! Clique em "Executar macro" para rodar.');
+    }
+  }
+  function executarMacro() {
+    macro.forEach(({ r, c, v }) => {
+      setCellData(data => {
+        const newData = data.map(arr => [...arr]);
+        newData[r][c] = v;
+        return newData;
+      });
+    });
+  }
+  // Hook para gravar edições na macro
+  React.useEffect(() => {
+    if (!gravandoMacro) return;
+    const lastEdit = history[history.length - 1];
+    if (!lastEdit) return;
+    const diffs = [];
+    for (let r = 0; r < cellData.length; r++) {
+      for (let c = 0; c < cellData[r].length; c++) {
+        if (cellData[r][c] !== lastEdit[r][c]) {
+          diffs.push({ r, c, v: cellData[r][c] });
+        }
+      }
+    }
+    if (diffs.length > 0) setMacro(m => [...m, ...diffs]);
+    // eslint-disable-next-line
+  }, [cellData]);
+
+  // Ferramentas: Editor de scripts
+  function handleEditorScripts() {
+    const script = window.prompt('Digite um JS para rodar nas células selecionadas. Use value para o valor da célula. Ex: value*2');
+    if (!script) return;
+    if (!selection.anchor || !selection.end) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    setCellData(data => {
+      const newData = data.map(arr => [...arr]);
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          try {
+            // eslint-disable-next-line no-eval
+            newData[r][c] = eval(script.replace(/value/g, JSON.stringify(newData[r][c])));
+          } catch {}
+        }
+      }
+      return newData;
+    });
+  }
+
+  // Ferramentas: Revisão
+  function handleRevisao() {
+    if (!selection.anchor || !selection.end) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    setCellStyles(prev => {
+      const newStyles = { ...prev };
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          newStyles[`${r}-${c}`] = { ...newStyles[`${r}-${c}`], reviewed: true };
+        }
+      }
+      return newStyles;
+    });
+  }
+
+  // Ferramentas: Acessibilidade (alto contraste)
+  const [altoContraste, setAltoContraste] = useState(false);
+  function handleAcessibilidade() {
+    setAltoContraste(a => !a);
+    document.body.style.background = altoContraste ? '#f5f5f5' : '#000';
+    document.body.style.color = altoContraste ? '#222' : '#fff';
+  }
+
+  // Atualizar toolsMenuHandlers
   const toolsMenuHandlers = {
     'Criar formulário': handleCriarFormulario,
     'Macros': handleMacros,
@@ -437,47 +562,622 @@ const menuOptions = {
 
 const menuItems = Object.keys(menuOptions);
 
+  // Inserir linha acima
+  function handleInserirLinhaAcima() {
+    const { row } = selectedCell;
+    const newData = [...cellData];
+    newData.splice(row, 0, Array(numCols).fill(''));
+    setCellData(newData);
+    setNumRows(r => r + 1);
+    setSelectedCell({ row: row, col: selectedCell.col });
+  }
+  // Inserir linha abaixo
+  function handleInserirLinhaAbaixo() {
+    const { row } = selectedCell;
+    const newData = [...cellData];
+    newData.splice(row + 1, 0, Array(numCols).fill(''));
+    setCellData(newData);
+    setNumRows(r => r + 1);
+    setSelectedCell({ row: row + 1, col: selectedCell.col });
+  }
+  // Inserir coluna à esquerda
+  function handleInserirColunaEsquerda() {
+    const { col } = selectedCell;
+    const newData = cellData.map(row => {
+      const newRow = [...row];
+      newRow.splice(col, 0, '');
+      return newRow;
+    });
+    setCellData(newData);
+    setNumCols(c => c + 1);
+    setSelectedCell({ row: selectedCell.row, col: col });
+  }
+  // Inserir coluna à direita
+  function handleInserirColunaDireita() {
+    const { col } = selectedCell;
+    const newData = cellData.map(row => {
+      const newRow = [...row];
+      newRow.splice(col + 1, 0, '');
+      return newRow;
+    });
+    setCellData(newData);
+    setNumCols(c => c + 1);
+    setSelectedCell({ row: selectedCell.row, col: col + 1 });
+  }
+  // Inserir célula (shift para baixo)
+  function handleInserirCelula() {
+    const { row, col } = selectedCell;
+    const newData = cellData.map(arr => [...arr]);
+    for (let r = numRows - 1; r > row; r--) {
+      newData[r][col] = newData[r - 1][col];
+    }
+    newData[row][col] = '';
+    setCellData(newData);
+  }
+  // Inserir caixa de seleção
+  function handleInserirCheckbox() {
+    const { row, col } = selectedCell;
+    setCellTypes(prev => ({ ...prev, [`${row}-${col}`]: { type: 'checkbox', value: false } }));
+  }
+  // Inserir link
+  function handleInserirLink() {
+    const { row, col } = selectedCell;
+    const url = window.prompt('Digite a URL do link:');
+    if (url) setCellTypes(prev => ({ ...prev, [`${row}-${col}`]: { type: 'link', value: url } }));
+  }
+  // Inserir comentário
+  function handleInserirComentario() {
+    const { row, col } = selectedCell;
+    const comentario = window.prompt('Digite o comentário:');
+    if (comentario) setCellTypes(prev => ({ ...prev, [`${row}-${col}`]: { type: 'comment', value: comentario } }));
+  }
+  // Inserir nota
+  function handleInserirNota() {
+    const { row, col } = selectedCell;
+    const nota = window.prompt('Digite a nota:');
+    if (nota) setCellTypes(prev => ({ ...prev, [`${row}-${col}`]: { type: 'note', value: nota } }));
+  }
+
   // Handlers para o menu Inserir
   const insertMenuHandlers = {
-    'Linha acima': () => alert('Inserir linha acima (simulação)'),
-    'Linha abaixo': () => alert('Inserir linha abaixo (simulação)'),
-    'Coluna à esquerda': () => alert('Inserir coluna à esquerda (simulação)'),
-    'Coluna à direita': () => alert('Inserir coluna à direita (simulação)'),
-    'Células': () => alert('Inserir células (simulação)'),
-    'Imagem': () => alert('Inserir imagem (simulação)'),
-    'Gráfico': () => setShowChartModal(true),
-    'Caixa de seleção': () => alert('Inserir caixa de seleção (simulação)'),
-    'Link': () => alert('Inserir link (simulação)'),
-    'Comentário': () => alert('Inserir comentário (simulação)'),
-    'Nota': () => alert('Inserir nota (simulação)')
+    'Linha acima': handleInserirLinhaAcima,
+    'Linha abaixo': handleInserirLinhaAbaixo,
+    'Coluna à esquerda': handleInserirColunaEsquerda,
+    'Coluna à direita': handleInserirColunaDireita,
+    'Células': handleInserirCelula,
+    'Imagem': handleInserirImagem,
+    'Gráfico': handleInserirGrafico,
+    'Caixa de seleção': handleInserirCheckbox,
+    'Link': handleInserirLink,
+    'Comentário': handleInserirComentario,
+    'Nota': handleInserirNota
   };
+
+  const imageInputRef = useRef(null);
+
+  function handleInserirImagem() {
+    if (imageInputRef.current) imageInputRef.current.value = '';
+    imageInputRef.current?.click();
+  }
+
+  function handleImageChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const { row, col } = selectedCell;
+      setCellTypes(prev => ({
+        ...prev,
+        [`${row}-${col}`]: { type: 'image', value: evt.target.result }
+      }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Formatar: Negrito
+  function handleNegrito() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], bold: !prev[`${row}-${col}`]?.bold }
+    }));
+  }
+  // Formatar: Itálico
+  function handleItalico() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], italic: !prev[`${row}-${col}`]?.italic }
+    }));
+  }
+  // Formatar: Sublinhado
+  function handleSublinhado() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], underline: !prev[`${row}-${col}`]?.underline }
+    }));
+  }
+  // Formatar: Tachado
+  function handleTachado() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], strike: !prev[`${row}-${col}`]?.strike }
+    }));
+  }
+  // Formatar: Cor do texto
+  function handleCorTexto() {
+    const { row, col } = selectedCell;
+    const color = window.prompt('Digite a cor do texto (ex: #ff0000 ou red):');
+    if (color) setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], color }
+    }));
+  }
+  // Formatar: Cor de preenchimento
+  function handleCorPreenchimento() {
+    const { row, col } = selectedCell;
+    const bg = window.prompt('Digite a cor de preenchimento (ex: #ffff00 ou yellow):');
+    if (bg) setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], bg }
+    }));
+  }
+  // Formatar: Moeda
+  function handleMoeda() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], format: prev[`${row}-${col}`]?.format === 'moeda' ? undefined : 'moeda' }
+    }));
+  }
+  // Formatar: Porcentagem
+  function handlePorcentagem() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], format: prev[`${row}-${col}`]?.format === 'porcentagem' ? undefined : 'porcentagem' }
+    }));
+  }
+  // Formatar: Número
+  function handleNumero() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], format: prev[`${row}-${col}`]?.format === 'numero' ? undefined : 'numero' }
+    }));
+  }
+  // Formatar: Alinhar
+  function handleAlinhar() {
+    const { row, col } = selectedCell;
+    const align = window.prompt('Alinhar: left, center, right?', 'left');
+    if (align) setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], align }
+    }));
+  }
+  // Formatar: Quebra de texto
+  function handleQuebraTexto() {
+    const { row, col } = selectedCell;
+    setCellStyles(prev => ({
+      ...prev,
+      [`${row}-${col}`]: { ...prev[`${row}-${col}`], wrap: !prev[`${row}-${col}`]?.wrap }
+    }));
+  }
+  // Seleção múltipla de células estilo Excel
+  const [selection, setSelection] = useState({ anchor: null, end: null });
+
+  function handleCellMouseDown(rIdx, cIdx) {
+    setSelection({ anchor: { row: rIdx, col: cIdx }, end: { row: rIdx, col: cIdx } });
+    setSelectedCell({ row: rIdx, col: cIdx });
+  }
+  function handleCellMouseOver(rIdx, cIdx) {
+    if (selection.anchor) {
+      setSelection(sel => ({ ...sel, end: { row: rIdx, col: cIdx } }));
+    }
+  }
+  function handleCellMouseUp() {
+    // Nada extra por enquanto
+  }
+  function isCellSelected(rIdx, cIdx) {
+    if (!selection.anchor || !selection.end) return false;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    return rIdx >= minRow && rIdx <= maxRow && cIdx >= minCol && cIdx <= maxCol;
+  }
+  function handleCellClick(rIdx, cIdx, e) {
+    if (e.shiftKey && selection.anchor) {
+      setSelection(sel => ({ anchor: sel.anchor, end: { row: rIdx, col: cIdx } }));
+      setSelectedCell({ row: rIdx, col: cIdx });
+    } else {
+      setSelection({ anchor: { row: rIdx, col: cIdx }, end: { row: rIdx, col: cIdx } });
+      setSelectedCell({ row: rIdx, col: cIdx });
+    }
+  }
+
+  // Corrigir seleção múltipla estilo Excel
+  function handleCellKeyDown(e, rIdx, cIdx) {
+    let nextRow = rIdx;
+    let nextCol = cIdx;
+    let expand = e.shiftKey;
+    if (e.key === 'Enter') {
+      if (e.shiftKey) nextRow = Math.max(0, rIdx - 1);
+      else nextRow = Math.min(numRows - 1, rIdx + 1);
+      e.preventDefault();
+    } else if (e.key === 'Tab') {
+      if (e.shiftKey) nextCol = Math.max(0, cIdx - 1);
+      else nextCol = Math.min(numCols - 1, cIdx + 1);
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown') {
+      nextRow = Math.min(numRows - 1, rIdx + 1);
+      e.preventDefault();
+    } else if (e.key === 'ArrowUp') {
+      nextRow = Math.max(0, rIdx - 1);
+      e.preventDefault();
+    } else if (e.key === 'ArrowLeft') {
+      nextCol = Math.max(0, cIdx - 1);
+      e.preventDefault();
+    } else if (e.key === 'ArrowRight') {
+      nextCol = Math.min(numCols - 1, cIdx + 1);
+      e.preventDefault();
+    } else if (e.key === 'Home') {
+      nextCol = 0;
+      e.preventDefault();
+    } else if (e.key === 'End') {
+      nextCol = numCols - 1;
+      e.preventDefault();
+    } else if (e.key === 'PageDown') {
+      nextRow = Math.min(numRows - 1, rIdx + 10);
+      e.preventDefault();
+    } else if (e.key === 'PageUp') {
+      nextRow = Math.max(0, rIdx - 10);
+      e.preventDefault();
+    }
+    if (nextRow !== rIdx || nextCol !== cIdx) {
+      if (expand && selection.anchor) {
+        setSelection(sel => ({ anchor: sel.anchor, end: { row: nextRow, col: nextCol } }));
+        setSelectedCell({ row: nextRow, col: nextCol });
+      } else {
+        setSelection({ anchor: { row: nextRow, col: nextCol }, end: { row: nextRow, col: nextCol } });
+        setSelectedCell({ row: nextRow, col: nextCol });
+      }
+    }
+  }
+
+  // Menu Inserir > Gráfico gera gráfico real com base na seleção
+  function handleInserirGrafico() {
+    if (!selection.anchor || !selection.end) {
+      alert('Selecione um intervalo de células para gerar o gráfico.');
+      return;
+    }
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    // Coletar dados do intervalo (primeira coluna como label, segunda como valor)
+    const labels = [];
+    const data = [];
+    for (let r = minRow; r <= maxRow; r++) {
+      let label = cellData[r][minCol];
+      let val = parseFloat(cellData[r][maxCol]);
+      if (!isNaN(val)) {
+        labels.push(label);
+        data.push(val);
+      }
+    }
+    if (labels.length === 0) {
+      alert('Selecione um intervalo de células com pelo menos uma coluna de texto e uma de números.');
+      return;
+    }
+    setChartData({
+      labels,
+      datasets: [{ label: 'Valores', data, backgroundColor: '#42a5f5' }]
+    });
+    setShowChartModal(true);
+  }
+
+  // Mesclar células real
+  function handleMesclarCelulas() {
+    if (!selection.anchor || !selection.end) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    if (minRow === maxRow && minCol === maxCol) return; // só uma célula
+    // Salvar conteúdo da célula superior esquerda
+    const mainValue = cellData[minRow][minCol];
+    // Limpar as outras células
+    const newData = cellData.map((row, r) =>
+      row.map((cell, c) =>
+        (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol && !(r === minRow && c === minCol)) ? '' : cell
+      )
+    );
+    setCellData(newData);
+    // Marcar mesclagem no estado de estilos
+    setCellStyles(prev => {
+      const newStyles = { ...prev };
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          newStyles[`${r}-${c}`] = {
+            ...newStyles[`${r}-${c}`],
+            merged: !(r === minRow && c === minCol),
+            mergeRoot: r === minRow && c === minCol,
+            mergeRows: maxRow - minRow + 1,
+            mergeCols: maxCol - minCol + 1
+          };
+        }
+      }
+      return newStyles;
+    });
+  }
+  // Desfazer mesclagem (ao clicar na célula mesclada)
+  function handleDesfazerMesclagem(rIdx, cIdx) {
+    const style = cellStyles[`${rIdx}-${cIdx}`];
+    if (!style?.mergeRoot) return;
+    const { mergeRows, mergeCols } = style;
+    setCellStyles(prev => {
+      const newStyles = { ...prev };
+      for (let r = rIdx; r < rIdx + mergeRows; r++) {
+        for (let c = cIdx; c < cIdx + mergeCols; c++) {
+          newStyles[`${r}-${c}`] = { ...newStyles[`${r}-${c}`] };
+          delete newStyles[`${r}-${c}`].merged;
+          delete newStyles[`${r}-${c}`].mergeRoot;
+          delete newStyles[`${r}-${c}`].mergeRows;
+          delete newStyles[`${r}-${c}`].mergeCols;
+        }
+      }
+      return newStyles;
+    });
+  }
 
   // Handlers para o menu Formatar
   const formatMenuHandlers = {
-    'Negrito': () => alert('Formatar como negrito (simulação)'),
-    'Itálico': () => alert('Formatar como itálico (simulação)'),
-    'Sublinhado': () => alert('Formatar como sublinhado (simulação)'),
-    'Tachado': () => alert('Formatar como tachado (simulação)'),
-    'Cor do texto': () => alert('Alterar cor do texto (simulação)'),
-    'Cor de preenchimento': () => alert('Alterar cor de preenchimento (simulação)'),
-    'Formatar como moeda': () => alert('Formatar como moeda (simulação)'),
-    'Formatar como porcentagem': () => alert('Formatar como porcentagem (simulação)'),
-    'Formatar como número': () => alert('Formatar como número (simulação)'),
-    'Alinhar': () => alert('Alterar alinhamento (simulação)'),
-    'Quebra de texto': () => alert('Alterar quebra de texto (simulação)'),
-    'Mesclar células': () => alert('Mesclar células (simulação)')
+    'Negrito': handleNegrito,
+    'Itálico': handleItalico,
+    'Sublinhado': handleSublinhado,
+    'Tachado': handleTachado,
+    'Cor do texto': handleCorTexto,
+    'Cor de preenchimento': handleCorPreenchimento,
+    'Formatar como moeda': handleMoeda,
+    'Formatar como porcentagem': handlePorcentagem,
+    'Formatar como número': handleNumero,
+    'Alinhar': handleAlinhar,
+    'Quebra de texto': handleQuebraTexto,
+    'Mesclar células': handleMesclarCelulas
   };
 
-  // Handlers para o menu Dados
+  // Classificar linhas pela coluna selecionada
+  function handleClassificar() {
+    if (!selection.anchor || !selection.end) return;
+    const col = selectedCell.col;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const sorted = [...cellData];
+    const toSort = sorted.slice(minRow, maxRow + 1).sort((a, b) => {
+      const va = a[col];
+      const vb = b[col];
+      const na = parseFloat(va);
+      const nb = parseFloat(vb);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return String(va).localeCompare(String(vb));
+    });
+    for (let i = minRow; i <= maxRow; i++) sorted[i] = toSort[i - minRow];
+    setCellData(sorted);
+  }
+
+  // Remover duplicatas na seleção
+  function handleRemoverDuplicatas() {
+    if (!selection.anchor || !selection.end) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    const seen = new Set();
+    const newData = cellData.filter((row, rIdx) => {
+      if (rIdx < minRow || rIdx > maxRow) return true;
+      const key = row.slice(minCol, maxCol + 1).join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    // Preencher linhas removidas com vazios para manter o tamanho
+    while (newData.length < cellData.length) newData.push(Array(numCols).fill(''));
+    setCellData(newData);
+  }
+
+  // Dividir texto em colunas (por vírgula)
+  function handleDividirTexto() {
+    if (!selection.anchor || !selection.end) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const col = selectedCell.col;
+    const newData = cellData.map(arr => [...arr]);
+    for (let r = minRow; r <= maxRow; r++) {
+      const parts = String(newData[r][col]).split(',');
+      for (let i = 0; i < parts.length && col + i < numCols; i++) {
+        newData[r][col + i] = parts[i].trim();
+      }
+    }
+    setCellData(newData);
+  }
+
+  // Filtro real: exibir/ocultar linhas por critério
+  function handleCriarFiltro() {
+    if (!selection.anchor || !selection.end) return;
+    const col = selectedCell.col;
+    const criterio = window.prompt('Filtrar: mostrar apenas linhas que contenham (texto ou número):');
+    if (criterio === null) return;
+    const newHiddenRows = [];
+    for (let r = 0; r < cellData.length; r++) {
+      if (r < selection.anchor.row || r > selection.end.row) continue;
+      const val = String(cellData[r][col]);
+      if (!val.includes(criterio)) newHiddenRows.push(r);
+    }
+    setHiddenRows(newHiddenRows);
+  }
+
+  // Validação de dados: impedir valores inválidos (ex: só números)
+  function handleValidacaoDados() {
+    if (!selection.anchor || !selection.end) return;
+    const tipo = window.prompt('Tipo de validação: "numero" para só números, "texto" para só texto:');
+    if (!tipo) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    setCellStyles(prev => {
+      const newStyles = { ...prev };
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          newStyles[`${r}-${c}`] = { ...newStyles[`${r}-${c}`], validation: tipo };
+        }
+      }
+      return newStyles;
+    });
+  }
+
+  // Proteger intervalo: bloquear edição de células selecionadas
+  function handleProtegerIntervalo() {
+    if (!selection.anchor || !selection.end) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    setCellStyles(prev => {
+      const newStyles = { ...prev };
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          newStyles[`${r}-${c}`] = { ...newStyles[`${r}-${c}`], protected: true };
+        }
+      }
+      return newStyles;
+    });
+  }
+
+  // Atualizar dataMenuHandlers
   const dataMenuHandlers = {
-    'Classificar': () => alert('Classificar dados (simulação)'),
-    'Criar filtro': () => alert('Criar filtro (simulação)'),
-    'Validação de dados': () => alert('Validação de dados (simulação)'),
-    'Remover duplicatas': () => alert('Remover duplicatas (simulação)'),
-    'Dividir texto em colunas': () => alert('Dividir texto em colunas (simulação)'),
-    'Proteger intervalo': () => alert('Proteger intervalo (simulação)')
+    'Classificar': handleClassificar,
+    'Criar filtro': handleCriarFiltro,
+    'Validação de dados': handleValidacaoDados,
+    'Remover duplicatas': handleRemoverDuplicatas,
+    'Dividir texto em colunas': handleDividirTexto,
+    'Proteger intervalo': handleProtegerIntervalo
   };
 
+  // Expande linhas/colunas ao rolar para o fim
+  const cellsContainerRef = useRef(null);
+  function handleCellsScroll(e) {
+    const el = e.target;
+    // Se chegou perto do fim das colunas, adiciona mais
+    if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 50) {
+      setNumCols(c => {
+        if (c < 500) return c + 10; // Limite de segurança
+        return c;
+      });
+      setCellData(data => data.map(row => [...row, ...Array(10).fill('')]));
+    }
+    // Se chegou perto do fim das linhas, adiciona mais
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
+      setNumRows(r => {
+        if (r < 1000) return r + 20; // Limite de segurança
+        return r;
+      });
+      setCellData(data => [...data, ...Array(20).fill().map(() => Array(numCols).fill(''))]);
+    }
+  }
+
+  // Refs para inputs das células
+  const cellRefs = useRef({});
+
+  // Foco automático na célula selecionada
+  React.useEffect(() => {
+    const key = `${selectedCell.row}-${selectedCell.col}`;
+    if (cellRefs.current[key]) {
+      cellRefs.current[key].focus();
+    }
+  }, [selectedCell]);
+
+  // Persistência automática no localStorage (corrigida)
+  const [initialized, setInitialized] = useState(false);
+  React.useEffect(() => {
+    if (!initialized) return;
+    const save = {
+      cellData,
+      cellTypes,
+      cellStyles,
+      sheetName
+    };
+    localStorage.setItem('excelData', JSON.stringify(save));
+  }, [cellData, cellTypes, cellStyles, sheetName, initialized]);
+
+  React.useEffect(() => {
+    const saved = localStorage.getItem('excelData');
+    if (saved) {
+      try {
+        const { cellData, cellTypes, cellStyles, sheetName } = JSON.parse(saved);
+        if (cellData) setCellData(cellData);
+        if (cellTypes) setCellTypes(cellTypes);
+        if (cellStyles) setCellStyles(cellStyles);
+        if (sheetName) setSheetName(sheetName);
+      } catch {}
+    }
+    setInitialized(true);
+  }, []);
+
+  // Imagens flutuantes
+  function getCellPosition(row, col) {
+    // Calcula a posição absoluta da célula na grade (ajuste conforme seu layout)
+    const top = 28 + row * 28; // 28px header + 28px por linha
+    const left = 40 + col * 100; // 40px num col + 100px por coluna
+    return { top, left };
+  }
+
+  // Remover imagem da célula
+  function handleRemoverImagem(row, col) {
+    setCellTypes(prev => {
+      const newTypes = { ...prev };
+      if (newTypes[`${row}-${col}`]?.type === 'image') delete newTypes[`${row}-${col}`];
+      return newTypes;
+    });
+  }
+
+  // Substituir imagem ao clicar duas vezes
+  function handleTrocarImagem(row, col) {
+    setSelectedCell({ row, col });
+    handleInserirImagem();
+  }
+
+  // Gerar gráfico real a partir do intervalo selecionado
+  function handleGerarGrafico() {
+    if (!selection.anchor || !selection.end) return;
+    const minRow = Math.min(selection.anchor.row, selection.end.row);
+    const maxRow = Math.max(selection.anchor.row, selection.end.row);
+    const minCol = Math.min(selection.anchor.col, selection.end.col);
+    const maxCol = Math.max(selection.anchor.col, selection.end.col);
+    // Coletar dados do intervalo
+    const labels = [];
+    const data = [];
+    for (let r = minRow; r <= maxRow; r++) {
+      let label = rows[r];
+      let val = parseFloat(cellData[r][minCol]);
+      if (!isNaN(val)) {
+        labels.push(label);
+        data.push(val);
+      }
+    }
+    if (labels.length === 0) {
+      alert('Selecione um intervalo de células numéricas para gerar o gráfico.');
+      return;
+    }
+    setChartData({
+      labels,
+      datasets: [{ label: 'Valores', data, backgroundColor: '#42a5f5' }]
+    });
+    setShowChartModal(true);
+  }
 
   return (
     <div className="main-content">
@@ -488,45 +1188,30 @@ const menuItems = Object.keys(menuOptions);
         ref={fileInputRef}
         onChange={handleFileChange}
       />
+      {/* Inserir imagem (deve estar antes do insertMenuHandlers) */}
+      <input
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        ref={imageInputRef}
+        onChange={handleImageChange}
+      />
       <div className="title">
         <span className="logo-inline">?? DataMergeAI</span>
         <span style={{ marginLeft: 16 }}>{sheetName} - Excel</span>
       </div>
-      <div className="menu-bar">
-        {menuItems.map((val) => (
-          <div key={val} className="menu-dropdown">
-            <span>{val}</span>
-            <div className="dropdown-content">
-              {menuOptions[val].map((opt, i) => (
-                <button
-                  className="menu-action"
-                  key={i}
-                  onClick={
-                    val === 'Arquivo' && fileMenuHandlers[opt] ? fileMenuHandlers[opt] :
-                    val === 'Editar' && editMenuHandlers[opt] ? editMenuHandlers[opt] :
-                    val === 'Ver' && viewMenuHandlers[opt] ? viewMenuHandlers[opt] :
-                    val === 'Inserir' && insertMenuHandlers[opt] ? insertMenuHandlers[opt] :
-                    val === 'Formatar' && formatMenuHandlers[opt] ? formatMenuHandlers[opt] :
-                    val === 'Dados' && dataMenuHandlers[opt] ? dataMenuHandlers[opt] :
-                    val === 'Ferramentas' && toolsMenuHandlers[opt] ? toolsMenuHandlers[opt] :
-                    undefined
-                  }
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        <div className="menu-send">
-          <span>Send</span>
-          <div className="send-dropdown">
-            <button className="menu-action">Upload</button>
-            <button className="menu-action">Exportar</button>
-            <button className="menu-action">Enviar por E-mail</button>
-          </div>
-        </div>
-      </div>
+      <ExcelMenuBar
+        menuOptions={menuOptions}
+        menuHandlers={{
+          'Arquivo': fileMenuHandlers,
+          'Editar': editMenuHandlers,
+          'Ver': viewMenuHandlers,
+          'Inserir': insertMenuHandlers,
+          'Formatar': formatMenuHandlers,
+          'Dados': dataMenuHandlers,
+          'Ferramentas': toolsMenuHandlers
+        }}
+      />
       <div className="cell-content">
         <div>fx</div>
         <div></div>
@@ -575,252 +1260,220 @@ const menuItems = Object.keys(menuOptions);
         <button className="icon-btn" title="Inserir gráfico"><MdInsertChart /></button>
         <button className="icon-btn" title="Filtro"><MdFilterList /></button>
       </div>
-      <div className="cells">
-        <div className="cells__spacer"></div>
-        {columns.map(col => (
-          <div className="cells__alphabet" key={col}>{col}</div>
-        ))}
-        {rows.map(row => (
-          <div className="cells__number" key={row}>{row}</div>
-        ))}
-        {rows.map((row, rIdx) =>
-          hiddenRows.includes(rIdx) ? null :
-          columns.map((col, cIdx) => {
-            if (hiddenCols.includes(cIdx)) return null;
-            const cellKey = `${rIdx}-${cIdx}`;
-            const cellType = cellTypes[cellKey]?.type;
-            const cellValue = cellTypes[cellKey]?.value;
-            // Renderização com estilos
-            const styleObj = cellStyles[cellKey] || {};
-            let displayValue = cellData[rIdx][cIdx];
-            if (styleObj.format === 'moeda') displayValue = `R$ ${displayValue}`;
-            if (styleObj.format === 'porcentagem') displayValue = `${displayValue}%`;
-            if (styleObj.format === 'numero') displayValue = Number(displayValue).toLocaleString();
-            return (
-              <div style={{ position: 'relative', display: styleObj.merged ? 'none' : 'inline-block' }} key={cellKey}>
-                {cellType === 'checkbox' ? (
-                  <input
-                    type="checkbox"
-                    checked={!!cellValue}
-                    className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
-                    style={{ zoom, background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
-                    onClick={() => { setSelectedCell({ row: rIdx, col: cIdx }); handleToggleCheckbox(rIdx, cIdx); }}
-                    readOnly={readOnly}
-                  />
-                ) : cellType === 'link' ? (
-                  <a
-                    href={cellValue}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
-                    style={{ zoom, background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined, display: 'inline-block', width: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
-                  >{cellValue}</a>
-                ) : cellType === 'comment' ? (
-                  <>
-                    <input
-                      className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
-                      style={{ zoom, background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
-                      value={displayValue}
-                      readOnly={readOnly}
-                      onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
-                      onChange={e => {
-                        const newData = cellData.map(arr => [...arr]);
-                        newData[rIdx][cIdx] = e.target.value;
-                        pushHistory(newData);
-                      }}
-                    />
-                    <span title={cellValue} style={{ position: 'absolute', right: 2, top: 2, fontSize: 14, color: '#f90', cursor: 'pointer' }}>💬</span>
-                  </>
-                ) : cellType === 'note' ? (
-                  <>
-                    <input
-                      className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
-                      style={{ zoom, background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
-                      value={displayValue}
-                      readOnly={readOnly}
-                      onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
-                      onChange={e => {
-                        const newData = cellData.map(arr => [...arr]);
-                        newData[rIdx][cIdx] = e.target.value;
-                        pushHistory(newData);
-                      }}
-                    />
-                    <span title={cellValue} style={{ position: 'absolute', right: 2, bottom: 2, fontSize: 14, color: '#09f', cursor: 'pointer' }}>📝</span>
-                  </>
-                ) : cellType === 'chart' ? (
-                  <button
-                    className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
-                    style={{ zoom, background: '#e3f2fd', border: '1px solid #90caf9', cursor: 'pointer', fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
-                    onClick={() => setShowChartModal(true)}
-                  >📊 Gráfico</button>
-                ) : (
-                  <input
-                    className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '') + (frozen.row && rIdx === 0 ? ' frozen-row' : '') + (frozen.col && cIdx === 0 ? ' frozen-col' : '')}
-                    key={rIdx + '-' + cIdx}
-                    value={showFormulas ? `=VALOR(${displayValue})` : displayValue}
-                    style={{ zoom, background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
-                    readOnly={readOnly}
-                    onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
-                    onChange={e => {
-                      const newData = cellData.map(arr => [...arr]);
-                      newData[rIdx][cIdx] = e.target.value;
-                      pushHistory(newData);
-                    }}
-                  />
-                )}
-                {cellStyles[cellKey]?.protected && (
-                  <span title="Protegida" style={{ position: 'absolute', left: 2, top: 2, fontSize: 12, color: '#c00' }}>🔒</span>
-                )}
-              </div>
-            );
-          })
-        )}
-      {/* Modal de gráfico fake */}
-      {showChartModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2300, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowChartModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Gráfico (simulação)</h3>
-            <div style={{ height: 120, background: '#e3f2fd', border: '1px solid #90caf9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
-              📊
-            </div>
-            <div style={{ marginTop: 12, fontSize: 14, color: '#555' }}>Dados: {chartData}</div>
-            <button style={{ marginTop: 16 }} onClick={() => setShowChartModal(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
-      {/* Modal Criar Formulário */}
-      {showFormModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2400, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowFormModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Criar Formulário (simulação)</h3>
-            <form>
-              {formFields.map((field, idx) => (
-                <div key={idx} style={{ marginBottom: 8 }}>
-                  <label>{field}: </label>
-                  <input type="text" placeholder={field} />
-                </div>
+      {/* Planilha estilo Excel */}
+      <div className="excel-container" style={{ position: 'relative', border: '1px solid #ccc', overflow: 'hidden' }}>
+        <div style={{ width: '100%', height: '100%', overflow: 'auto', position: 'relative' }} onScroll={handleCellsScroll}>
+          <div style={{ minWidth: columns.length * 100 + 40, minHeight: (rows.length + 1) * 28, position: 'relative', width: 'fit-content', height: 'fit-content' }}>
+            {/* Cabeçalho de colunas e números de linha juntos */}
+            <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 3 }}>
+              {/* Canto superior esquerdo */}
+              <div style={{ width: 40, height: 28, background: '#e0e0e0', borderRight: '1.5px solid #bdbdbd', borderBottom: '1.5px solid #bdbdbd', position: 'sticky', left: 0, zIndex: 4 }}></div>
+              {columns.map((col, cIdx) => (
+                hiddenCols.includes(cIdx) ? null :
+                <div key={col} style={{ width: 100, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', borderRight: '1px solid #ccc', borderBottom: '1.5px solid #bdbdbd', background: '#f5f5f5', position: 'relative', zIndex: 3, boxSizing: 'border-box' }}>{col}</div>
               ))}
-            </form>
-            <button style={{ marginTop: 16 }} onClick={() => setShowFormModal(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
-      {/* Modal Macros */}
-      {showMacroModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2410, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowMacroModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Macros (simulação)</h3>
-            <div style={{ fontSize: 14, color: '#555' }}>{macroText}</div>
-            <button style={{ marginTop: 16 }} onClick={() => setShowMacroModal(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
-      {/* Modal Editor de Scripts */}
-      {showScriptModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2420, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowScriptModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Editor de Scripts (simulação)</h3>
-            <textarea style={{ width: '100%', minHeight: 80 }} value={scriptText} readOnly />
-            <button style={{ marginTop: 16 }} onClick={() => setShowScriptModal(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
-      {/* Modal Revisão */}
-      {showReviewModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2430, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowReviewModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Revisão (simulação)</h3>
-            <div style={{ fontSize: 14, color: '#555' }}>{reviewText}</div>
-            <button style={{ marginTop: 16 }} onClick={() => setShowReviewModal(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
-      {/* Modal Acessibilidade */}
-      {showAccessibilityModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2440, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowAccessibilityModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Acessibilidade (simulação)</h3>
-            <div style={{ fontSize: 14, color: '#555' }}>Recursos de acessibilidade simulados: alto contraste, navegação por teclado, descrição de células.</div>
-            <button style={{ marginTop: 16 }} onClick={() => setShowAccessibilityModal(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
-      {/* Modal Pesquisar e Substituir */}
-      {showFindReplace && (
-        <div className="modal" onClick={() => setShowFindReplace(false)}>
-          <div className="modal-content" style={{maxWidth:400}} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">Pesquisar e substituir</div>
-            <div>
-              <input placeholder="Pesquisar por..." value={findValue} onChange={e => setFindValue(e.target.value)} />
             </div>
-            <div style={{ marginTop: 8 }}>
-              <input placeholder="Substituir por..." value={replaceValue} onChange={e => setReplaceValue(e.target.value)} />
-            </div>
-            <div className="modal-actions">
-              <button onClick={doFindReplace}>Substituir tudo</button>
-              <button onClick={() => setShowFindReplace(false)}>Cancelar</button>
-            </div>
+            {/* Linhas da planilha */}
+            {rows.map((row, rIdx) => (
+              hiddenRows.includes(rIdx) ? null :
+              <div key={rIdx} style={{ display: 'flex' }}>
+                {/* Número da linha sticky à esquerda */}
+                <div style={{ width: 40, minWidth: 40, maxWidth: 40, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', borderRight: '1.5px solid #bdbdbd', borderBottom: '1px solid #ccc', background: '#f5f5f5', position: 'sticky', left: 0, zIndex: 2 }}>{row}</div>
+                {columns.map((col, cIdx) => {
+                  if (hiddenCols.includes(cIdx)) return null;
+                  const cellKey = `${rIdx}-${cIdx}`;
+                  const cellType = cellTypes[cellKey]?.type;
+                  const cellValue = cellTypes[cellKey]?.value;
+                  const styleObj = cellStyles[cellKey] || {};
+                  let displayValue = cellData[rIdx][cIdx];
+                  if (styleObj.format === 'moeda') displayValue = `R$ ${displayValue}`;
+                  if (styleObj.format === 'porcentagem') displayValue = `${displayValue}%`;
+                  if (styleObj.format === 'numero') displayValue = Number(displayValue).toLocaleString();
+                  return (
+                    <div
+                      className={
+                        (isCellSelected(rIdx, cIdx) ? 'cells__selected ' : '') +
+                        (selectedCell.row === rIdx && selectedCell.col === cIdx ? 'cells__active ' : '')
+                      }
+                      style={{ width: 100, height: 28, border: '1px solid #e0e0e0', background: styleObj.reviewed ? '#e0ffe0' : isCellSelected(rIdx, cIdx) ? '#d1eaff' : '#fff', display: cellStyles[cellKey]?.merged ? 'none' : 'flex', alignItems: 'center', position: 'relative', boxSizing: 'border-box' }}
+                      key={cellKey}
+                      onMouseDown={() => handleCellMouseDown(rIdx, cIdx)}
+                      onMouseOver={e => { if (e.buttons === 1) handleCellMouseOver(rIdx, cIdx); }}
+                      onMouseUp={handleCellMouseUp}
+                      onClick={e => {
+                        handleCellClick(rIdx, cIdx, e);
+                        if (cellStyles[cellKey]?.mergeRoot) handleDesfazerMesclagem(rIdx, cIdx);
+                      }}
+                    >
+                      {/* Renderização da célula, igual antes */}
+                      {cellType === 'image' ? (
+                        <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onDoubleClick={() => handleTrocarImagem(rIdx, cIdx)}>
+                          <img src={cellValue} alt="img" style={{ maxWidth: 200, maxHeight: 100, display: 'block', borderRadius: 4 }} />
+                          <button
+                            style={{ position: 'absolute', top: 2, right: 2, background: '#fff', border: '1px solid #ccc', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, opacity: 0.8 }}
+                            title="Remover imagem"
+                            onClick={e => { e.stopPropagation(); handleRemoverImagem(rIdx, cIdx); }}
+                          >✕</button>
+                        </div>
+                      ) : cellType === 'checkbox' ? (
+                        <input
+                          type="checkbox"
+                          checked={!!cellValue}
+                          className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
+                          style={{ background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
+                          onClick={() => { setSelectedCell({ row: rIdx, col: cIdx }); handleToggleCheckbox(rIdx, cIdx); }}
+                          readOnly={readOnly}
+                        />
+                      ) : cellType === 'link' ? (
+                        <a
+                          href={cellValue}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
+                          style={{ background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined, display: 'inline-block', width: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
+                        >{cellValue}</a>
+                      ) : cellType === 'comment' ? (
+                        <>
+                          <input
+                            className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
+                            style={{ background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
+                            value={displayValue}
+                            readOnly={readOnly}
+                            onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
+                            onChange={e => {
+                              const newData = cellData.map(arr => [...arr]);
+                              newData[rIdx][cIdx] = e.target.value;
+                              pushHistory(newData);
+                            }}
+                          />
+                          <span title={cellValue} style={{ position: 'absolute', right: 2, top: 2, fontSize: 14, color: '#f90', cursor: 'pointer' }}>💬</span>
+                        </>
+                      ) : cellType === 'note' ? (
+                        <>
+                          <input
+                            className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
+                            style={{ background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
+                            value={displayValue}
+                            readOnly={readOnly}
+                            onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
+                            onChange={e => {
+                              const newData = cellData.map(arr => [...arr]);
+                              newData[rIdx][cIdx] = e.target.value;
+                              pushHistory(newData);
+                            }}
+                          />
+                          <span title={cellValue} style={{ position: 'absolute', right: 2, bottom: 2, fontSize: 14, color: '#09f', cursor: 'pointer' }}>📝</span>
+                        </>
+                      ) : cellType === 'chart' ? (
+                        <button
+                          className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
+                          style={{ background: '#e3f2fd', border: '1px solid #90caf9', cursor: 'pointer', fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
+                          onClick={() => setShowChartModal(true)}
+                        >📊 Gráfico</button>
+                      ) : (
+                        <input
+                          ref={el => { cellRefs.current[`${rIdx}-${cIdx}`] = el; }}
+                          className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '') + (frozen.row && rIdx === 0 ? ' frozen-row' : '') + (frozen.col && cIdx === 0 ? ' frozen-col' : '')}
+                          key={rIdx + '-' + cIdx}
+                          value={showFormulas ? `=VALOR(${displayValue})` : displayValue}
+                          style={{ background: styleObj.bg, color: styleObj.color, fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined, width: '100%', height: '100%' }}
+                          readOnly={readOnly || styleObj.protected}
+                          onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
+                          onChange={e => {
+                            if (styleObj.validation === 'numero' && isNaN(Number(e.target.value))) {
+                              alert('Apenas números são permitidos nesta célula.');
+                              return;
+                            }
+                            if (styleObj.validation === 'texto' && /\d/.test(e.target.value)) {
+                              alert('Apenas texto é permitido nesta célula.');
+                              return;
+                            }
+                            const newData = cellData.map(arr => [...arr]);
+                            newData[rIdx][cIdx] = e.target.value;
+                            pushHistory(newData);
+                          }}
+                          onKeyDown={e => handleCellKeyDown(e, rIdx, cIdx)}
+                        />
+                      )}
+                      {cellStyles[cellKey]?.protected && (
+                        <span title="Protegida" style={{ position: 'absolute', left: 2, top: 2, fontSize: 12, color: '#c00' }}>🔒</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            {/* Retângulo de seleção múltipla - só se anchor e end forem diferentes */}
+            {selection.anchor && selection.end && (selection.anchor.row !== selection.end.row || selection.anchor.col !== selection.end.col) && (() => {
+              const minRow = Math.min(selection.anchor.row, selection.end.row);
+              const maxRow = Math.max(selection.anchor.row, selection.end.row);
+              const minCol = Math.min(selection.anchor.col, selection.end.col);
+              const maxCol = Math.max(selection.anchor.col, selection.end.col);
+              const top = 28 + minRow * 28;
+              const left = 40 + minCol * 100;
+              const width = (maxCol - minCol + 1) * 100;
+              const height = (maxRow - minRow + 1) * 28;
+              return <div className="cells__selection-rect" style={{ position: 'absolute', top, left, width, height, zIndex: 1000, pointerEvents: 'none' }} />;
+            })()}
           </div>
         </div>
-      )}
       </div>
-      {/* ChatBox integrado ao rodapé da planilha */}
-      <div style={{ width: '100%', marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+      {macro.length > 0 && !gravandoMacro && (
+        <button style={{ position: 'fixed', top: 120, right: 40, zIndex: 2000, background: '#673ab7', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 18px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 8px #0002' }}
+          onClick={executarMacro}
+        >Executar macro</button>
+      )}
+      {/* Modal de gráfico fake */}
+      <ChartModal show={showChartModal} onClose={() => setShowChartModal(false)} chartData={chartData} />
+      {/* Modal Criar Formulário */}
+      <FormModal show={showFormModal} onClose={() => setShowFormModal(false)} formFields={formFields} />
+      {/* Modal Macros */}
+      <MacroModal show={showMacroModal} onClose={() => setShowMacroModal(false)} macroText={macroText} />
+      {/* Modal Editor de Scripts */}
+      <ScriptModal show={showScriptModal} onClose={() => setShowScriptModal(false)} scriptText={scriptText} />
+      {/* Modal Revisão */}
+      <ReviewModal show={showReviewModal} onClose={() => setShowReviewModal(false)} reviewText={reviewText} />
+      {/* Modal Acessibilidade */}
+      <AccessibilityModal show={showAccessibilityModal} onClose={() => setShowAccessibilityModal(false)} />
+      {/* Modal Pesquisar e Substituir */}
+      <FindReplaceModal show={showFindReplace} onClose={() => setShowFindReplace(false)} findValue={findValue} setFindValue={setFindValue} replaceValue={replaceValue} setReplaceValue={setReplaceValue} onReplaceAll={doFindReplace} />
+      {/* Modal de versões */}
+      <VersionsModal show={showVersions} onClose={() => setShowVersions(false)} loadingVersions={loadingVersions} versions={versions} onRestoreVersion={handleRestaurarVersao} />
+      {/* Modal de detalhes */}
+      <DetailsModal show={showDetails} onClose={() => setShowDetails(false)} sheetName={sheetName} rows={rows} columns={columns} />
+      {/* Modal de configurações */}
+      <ConfigModal show={showConfig} onClose={() => setShowConfig(false)} />
+
+      {/* ChatBox flutuante */}
+      <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 3000, boxShadow: '0 2px 12px rgba(0,0,0,0.13)', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
         <ChatBox username={sheetName} />
       </div>
-
-      {/* Modal de versões */}
-      {showVersions && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }} onClick={() => setShowVersions(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 340, maxWidth: 500, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 4px 24px rgba(0,0,0,0.13)', padding: 24 }} onClick={e => e.stopPropagation()}>
-            <h3>Histórico de versões</h3>
-            {loadingVersions ? <div>Carregando...</div> : (
-              <>
-                {versions.length === 0 && <div>Nenhuma versão salva.</div>}
-                <ul style={{ listStyle: 'none', padding: 0 }}>
-                  {versions.map(v => (
-                    <li key={v.id} style={{ marginBottom: 12, borderBottom: '1px solid #eee', paddingBottom: 8 }}>
-                      <div><b>{v.name}</b></div>
-                      <div style={{ fontSize: 12, color: '#888' }}>{new Date(v.timestamp).toLocaleString()} {v.user && `por ${v.user}`}</div>
-                      <button style={{ marginTop: 6 }} onClick={() => handleRestaurarVersao(v)}>Restaurar</button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <button style={{ marginTop: 12 }} onClick={() => setShowVersions(false)}>Fechar</button>
+      {/* Imagens flutuantes */}
+      {Object.entries(cellTypes).filter(([k, v]) => v.type === 'image').map(([key, v]) => {
+        const [row, col] = key.split('-').map(Number);
+        const pos = getCellPosition(row, col);
+        return (
+          <div
+            key={key}
+            style={{ position: 'absolute', top: pos.top, left: pos.left, zIndex: 10, cursor: 'move', userSelect: 'none' }}
+            draggable
+            onDragStart={e => {
+              e.dataTransfer.setData('text/plain', key);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDoubleClick={() => handleTrocarImagem(row, col)}
+          >
+            <img src={v.value} alt="img" style={{ maxWidth: 200, maxHeight: 100, borderRadius: 4, boxShadow: '0 2px 8px #0002' }} />
+            <button
+              style={{ position: 'absolute', top: 2, right: 2, background: '#fff', border: '1px solid #ccc', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, opacity: 0.8 }}
+              title="Remover imagem"
+              onClick={e => { e.stopPropagation(); handleRemoverImagem(row, col); }}
+            >✕</button>
           </div>
-        </div>
-      )}
-
-      {/* Modal de detalhes */}
-      {showDetails && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowDetails(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Detalhes do arquivo</h3>
-            <div><b>Nome:</b> {sheetName}</div>
-            <div><b>Linhas:</b> {rows.length}</div>
-            <div><b>Colunas:</b> {columns.length}</div>
-            <div><b>Última modificação:</b> {new Date().toLocaleString()}</div>
-            <button style={{ marginTop: 16 }} onClick={() => setShowDetails(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de configurações */}
-      {showConfig && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.25)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowConfig(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, minWidth: 320, maxWidth: 400, padding: 24, boxShadow: '0 4px 24px rgba(0,0,0,0.13)' }} onClick={e => e.stopPropagation()}>
-            <h3>Configurações</h3>
-            <div>Configurações futuras podem ser adicionadas aqui.</div>
-            <button style={{ marginTop: 16 }} onClick={() => setShowConfig(false)}>Fechar</button>
-          </div>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
