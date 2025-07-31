@@ -1,19 +1,17 @@
-
-
 from rest_framework import serializers
 from .models import Version, ChatMessage, ExcelFile
 
 class VersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Version
-        fields = ['id', 'name', 'data', 'user', 'timestamp']
+        fields = '__all__'
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatMessage
-        fields = ['id', 'user', 'message', 'timestamp']
+        fields = '__all__'
 
 class ExcelFileSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExcelFile
-        fields = ['id', 'file', 'uploaded_at']
+        fields = '__all__'

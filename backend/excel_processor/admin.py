@@ -1,3 +1,6 @@
 from django.contrib import admin
+from .models import Version, ChatMessage, ExcelFile
 
-# Register your models here.
+admin.site.register(Version)
+admin.site.register(ChatMessage)
+admin.site.register(ExcelFile)

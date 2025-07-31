@@ -1,20 +1,30 @@
 from django.core.mail import EmailMessage
 import tempfile
+import json
+import random
+import pandas as pd
+import os
 from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework import viewsets
+from rest_framework.views import APIView
+from rest_framework.decorators import action
+from .models import Version, ChatMessage, ExcelFile
+from .serializers import VersionSerializer, ChatMessageSerializer, ExcelFileSerializer
 
 # Endpoint para exportar e enviar planilha por e-mail
 @api_view(['POST'])
 def exportar_enviar_email(request):
-    import json
     data = request.data.get('data')
     to_email = request.data.get('to_email')
     sheet_name = request.data.get('sheet_name', 'Planilha')
     if not data or not to_email:
         return Response({'error': 'Dados ou e-mail de destino ausentes.'}, status=400)
     try:
-        # Converte dados para Excel tempor�rio
+        # Converte dados para Excel temporario
         arr = json.loads(data)
-        import pandas as pd
         df = pd.DataFrame(arr)
         with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
             df.to_excel(tmp.name, index=False)
@@ -29,37 +39,30 @@ def exportar_enviar_email(request):
         return Response({'success': True})
     except Exception as e:
         return Response({'error': str(e)}, status=500)
-from .models import Version
-from .serializers import VersionSerializer
-from rest_framework import viewsets
 
-# ViewSet para hist�rico de vers�es
+# ViewSet para historico de versoes
 class VersionViewSet(viewsets.ModelViewSet):
     queryset = Version.objects.all()
     serializer_class = VersionSerializer
-from rest_framework import viewsets
-from .models import ChatMessage
-from .serializers import ChatMessageSerializer
 
 # ViewSet para chat
 class ChatMessageViewSet(viewsets.ModelViewSet):
-    from rest_framework.decorators import action
+    queryset = ChatMessage.objects.all()
+    serializer_class = ChatMessageSerializer
 
     @action(detail=False, methods=['post'])
     def clear(self, request):
         ChatMessage.objects.all().delete()
         return Response({'success': True, 'detail': 'Chat limpo!'}, status=204)
+    
     def destroy(self, request, *args, **kwargs):
         ChatMessage.objects.all().delete()
         return Response({'success': True, 'detail': 'Chat limpo!'}, status=204)
-    queryset = ChatMessage.objects.all()
-    serializer_class = ChatMessageSerializer
 
     def perform_create(self, serializer):
         # Save user message
         instance = serializer.save()
         # Bot response phrases
-        import random
         bot_phrases = [
             'Recebido! Como posso ajudar?',
             'Sua mensagem foi registrada.',
@@ -71,14 +74,6 @@ class ChatMessageViewSet(viewsets.ModelViewSet):
             user='Bot',
             message=random.choice(bot_phrases)
         )
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.parsers import MultiPartParser, FormParser
-from .models import ExcelFile
-from .serializers import ExcelFileSerializer
-import pandas as pd
-import os
 
 class ExcelFileUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -95,18 +90,31 @@ class ExcelFileUploadView(APIView):
             excel_file = ExcelFile.objects.create(file=f)
             file_path = excel_file.file.path
             try:
+                print(f"📁 Processando arquivo: {f.name}")
                 df = pd.read_excel(file_path)
-                df_clean = df.drop_duplicates()  # N�o remove linhas vazias automaticamente
+                print(f"📊 Arquivo carregado: {len(df)} linhas x {len(df.columns)} colunas")
+                
+                # Verificar se a planilha é muito grande
+                if len(df) > 10000:
+                    print(f"⚠️ Planilha muito grande: {len(df)} linhas")
+                
+                df_clean = df.drop_duplicates()  # Nao remove linhas vazias automaticamente
+                print(f"🧹 Após limpeza: {len(df_clean)} linhas")
+                
                 dataframes.append(df_clean)
                 file_infos.append({
                     'id': excel_file.id,
                     'file': excel_file.file.url,
                     'uploaded_at': excel_file.uploaded_at,
                     'columns': list(df_clean.columns),
-                    'rows': len(df_clean)
+                    'rows': len(df_clean),
+                    'original_rows': len(df),
+                    'duplicates_removed': len(df) - len(df_clean)
                 })
                 columns_by_file.append(set(df_clean.columns))
+                print(f"✅ Arquivo processado com sucesso: {f.name}")
             except Exception as e:
+                print(f"❌ Erro ao processar {f.name}: {str(e)}")
                 file_infos.append({'error': str(e), 'file': f.name})
                 columns_by_file.append(set())
 
@@ -127,7 +135,7 @@ class ExcelFileUploadView(APIView):
             # Merge seguro (outer join)
             merged = pd.merge(dataframes[0], dataframes[1], on=merge_col, how='outer', suffixes=('_1', '_2'), indicator=True)
             merged_preview = merged.head(5).to_dict(orient='records')
-            # Relat�rio do merge
+            # Relatorio do merge
             added = merged[merged['_merge'] == 'right_only'].shape[0]
             removed = merged[merged['_merge'] == 'left_only'].shape[0]
             matched = merged[merged['_merge'] == 'both'].shape[0]

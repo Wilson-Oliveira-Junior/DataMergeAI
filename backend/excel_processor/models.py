@@ -1,7 +1,6 @@
-
 from django.db import models
 
-# Modelo para histórico de versões
+# Modelo para historico de versoes
 class Version(models.Model):
     name = models.CharField(max_length=100)
     data = models.TextField()  # JSON ou texto serializado
@@ -14,7 +13,7 @@ class Version(models.Model):
     def __str__(self):
         return f"{self.name} ({self.timestamp:%Y-%m-%d %H:%M})"
 
-# Chat para integração frontend-backend
+# Chat para integracao frontend-backend
 class ChatMessage(models.Model):
     user = models.CharField(max_length=100)
     message = models.TextField()

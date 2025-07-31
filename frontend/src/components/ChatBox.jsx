@@ -3,7 +3,7 @@ import './ChatBox.css';
 
 const API_URL = '/api/excel/chat/';
 
-export default function ChatBox({ username = 'Usuário' }) {
+export default function ChatBox({ username = 'Usuï¿½rio' }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -60,13 +60,13 @@ export default function ChatBox({ username = 'Usuário' }) {
     <div className="chatbox">
       <div className="chatbox-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <span>Chat</span>
-        <span style={{marginLeft:12, fontSize:13, color:'#1976d2', fontWeight:'bold'}}>Você: {username}</span>
+        <span style={{marginLeft:12, fontSize:13, color:'#1976d2', fontWeight:'bold'}}>Vocï¿½: {username}</span>
         <button style={{marginLeft:8,padding:'2px 10px',fontSize:13,borderRadius:6,border:'none',background:'#1976d2',color:'#fff',cursor:'pointer'}} onClick={handleNewChat} disabled={loading}>Novo Chat</button>
       </div>
       <div className="chatbox-messages" style={{background:'#e3f2fd'}}>
         {messages.map(msg => (
           <div key={msg.id} className={msg.user === username ? 'chatbox-msg self' : 'chatbox-msg'} style={{background:msg.user === username ? '#bbdefb' : '#e3f2fd',color:'#222'}}>
-            <span className="chatbox-user">{msg.user === username ? 'Você' : msg.user}:</span> {msg.message}
+            <span className="chatbox-user">{msg.user === username ? 'Vocï¿½' : msg.user}:</span> {msg.message}
           </div>
         ))}
         <div ref={messagesEndRef} />

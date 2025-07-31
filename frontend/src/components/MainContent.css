@@ -59,7 +59,7 @@
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   min-width: 160px;
-  z-index: 10;
+  z-index: 100;
   flex-direction: column;
   padding: 0.5rem 0;
 }
@@ -79,7 +79,7 @@
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   min-width: 160px;
-  z-index: 10;
+  z-index: 100;
   flex-direction: column;
   padding: 0.5rem 0;
 }
@@ -280,7 +280,7 @@ body {
   background: #f5f5f5;
 }
 
-/* Células */
+/* Cï¿½lulas */
 .cells__input {
   background: #fff;
   color: #222;
@@ -304,10 +304,10 @@ html, body, #root {
   background: #f5f5f5;
 }
 
-/* Ajuste para o container da planilha ocupar todo o espaço */
+/* Ajuste para o container da planilha ocupar todo o espaï¿½o */
 .excel-container {
   width: 100%;
-  height: calc(100vh - 150px); /* ajuste para menus/toolbars, altere se necessário */
+  height: calc(100vh - 150px); /* ajuste para menus/toolbars, altere se necessï¿½rio */
   margin: 0;
   padding: 0;
   background: #e0e0e0;
@@ -321,7 +321,7 @@ html, body, #root {
   height: 45px;
   padding: 0 2rem;
   gap: 2rem;
-  z-index: 20;
+  z-index: 50;
 }
 .excel-menu-dropdown {
   position: relative;
@@ -357,7 +357,7 @@ html, body, #root {
   border-radius: 0 0 6px 6px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   min-width: 180px;
-  z-index: 30;
+  z-index: 100;
   padding: 0.5rem 0;
   margin-top: 2px;
 }
@@ -394,14 +394,14 @@ html, body, #root {
   }
 }
 
-/* Seleção múltipla estilo Excel */
+/* Seleï¿½ï¿½o mï¿½ltipla estilo Excel */
 .cells__selected {
   background: #fff !important;
   transition: background 0.15s;
 }
 .cells__active {
   outline: 2px solid #1976d2;
-  z-index: 1100;
+  z-index: 10;
   background: #fff !important;
 }
 .cells__selection-rect {
@@ -410,6 +410,6 @@ html, body, #root {
   pointer-events: none;
   border-radius: 2px;
   box-sizing: border-box;
-  z-index: 1000;
+  z-index: 5;
   background: none;
 }

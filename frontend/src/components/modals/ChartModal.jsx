@@ -21,4 +21,4 @@ export default function ChartModal({ show, onClose, chartData }) {
       </div>
     </div>
   );
-} 
+}

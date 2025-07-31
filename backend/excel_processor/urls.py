@@ -1,13 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from . import views
 
-from .views import ChatMessageViewSet, VersionViewSet, ExcelFileUploadView, exportar_enviar_email
 router = DefaultRouter()
-router.register(r'chat', ChatMessageViewSet, basename='chat')
-router.register(r'versions', VersionViewSet, basename='versions')
+router.register(r'chat', views.ChatMessageViewSet)
+router.register(r'versions', views.VersionViewSet)
 
 urlpatterns = [
-    path('upload/', ExcelFileUploadView.as_view(), name='excel-upload'),
-    path('exportar-email/', exportar_enviar_email, name='exportar-email'),
     path('', include(router.urls)),
+    path('upload/', views.ExcelFileUploadView.as_view(), name='excel-upload'),
+    path('export-email/', views.exportar_enviar_email, name='export-email'),
 ]

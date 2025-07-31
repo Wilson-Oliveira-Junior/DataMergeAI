@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { MdUndo, MdRedo, MdPrint, MdFormatPaint, MdAttachMoney, MdPercent, MdExposureNeg1, MdExposurePlus1, MdFormatBold, MdFormatItalic, MdStrikethroughS, MdFormatColorText, MdFormatColorFill, MdBorderAll, MdMergeType, MdFormatAlignLeft, MdFormatAlignCenter, MdFormatAlignRight, MdWrapText, MdInsertLink, MdInsertComment, MdInsertChart, MdFilterList } from 'react-icons/md';
 import './MainContent.css';
@@ -16,8 +16,10 @@ import VersionsModal from './modals/VersionsModal';
 import DetailsModal from './modals/DetailsModal';
 import ConfigModal from './modals/ConfigModal';
 import ExcelMenuBar from './ExcelMenuBar';
+import ConnectionStatus from './ConnectionStatus';
+import { saveToServer, loadFromServer, sendChatMessage, loadChatMessages, checkConnection } from '../utils/api';
 
-// Função utilitária para gerar cabeçalhos de coluna estilo Excel
+// FunÃ§Ã£o utilitÃ¡ria para gerar cabeÃ§alhos de coluna estilo Excel
 function getColumnLabel(n) {
   let label = '';
   while (n >= 0) {
@@ -28,14 +30,35 @@ function getColumnLabel(n) {
 }
 
 export default function MainContent() {
-  const [numRows, setNumRows] = useState(100);
-  const [numCols, setNumCols] = useState(26);
+  const [numRows, setNumRows] = useState(1000);
+  const [numCols, setNumCols] = useState(100);
   const columns = Array.from({ length: numCols }, (_, i) => getColumnLabel(i));
   const rows = Array.from({ length: numRows }, (_, i) => i + 1);
   function createEmptyData(rowsLen = numRows, colsLen = numCols) {
     return Array.from({ length: rowsLen }, () => Array(colsLen).fill(''));
   }
   const [cellData, setCellData] = useState(createEmptyData());
+  
+  // Função para garantir que cellData tenha o tamanho correto
+  function ensureCellDataSize() {
+    if (cellData.length !== numRows || cellData[0]?.length !== numCols) {
+      const newData = createEmptyData(numRows, numCols);
+      // Copiar dados existentes
+      for (let r = 0; r < Math.min(cellData.length, numRows); r++) {
+        for (let c = 0; c < Math.min(cellData[r]?.length || 0, numCols); c++) {
+          newData[r][c] = cellData[r]?.[c] || '';
+        }
+      }
+      setCellData(newData);
+    }
+  }
+  
+  // Garantir que cellData esteja sincronizado quando numRows/numCols mudarem
+  useEffect(() => {
+    ensureCellDataSize();
+  }, [numRows, numCols]);
+
+
   const [cellTypes, setCellTypes] = useState({});
   const [cellStyles, setCellStyles] = useState({});
   const [showChartModal, setShowChartModal] = useState(false);
@@ -77,11 +100,11 @@ export default function MainContent() {
     if (z && !isNaN(Number(z))) setZoom(Number(z));
   }
   const viewMenuHandlers = {
-    'Modo de exibição': handleModoExibicao,
+    'Modo de exibiÃ§Ã£o': handleModoExibicao,
     'Congelar': handleCongelar,
     'Ocultar linhas': handleOcultarLinhas,
     'Ocultar colunas': handleOcultarColunas,
-    'Mostrar fórmulas': handleMostrarFormulas,
+    'Mostrar fÃ³rmulas': handleMostrarFormulas,
     'Zoom': handleZoom
   };
   const [clipboard, setClipboard] = useState('');
@@ -91,12 +114,63 @@ export default function MainContent() {
   const [findValue, setFindValue] = useState('');
   const [replaceValue, setReplaceValue] = useState('');
   const fileInputRef = useRef(null);
+  
+  // Estados para integração com backend
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [lastSaved, setLastSaved] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [isLoadingChat, setIsLoadingChat] = useState(false);
 
-  // Novo: limpa a tabela, mas pede confirmação se houver dados
+  // useEffect para verificar conexão com backend
+  useEffect(() => {
+    const checkBackendConnection = async () => {
+      try {
+        const status = await checkConnection();
+        setConnectionStatus(status);
+      } catch (error) {
+        console.error('Erro ao verificar conexão:', error);
+        setConnectionStatus('disconnected');
+      }
+    };
+
+    // Verificar conexão inicial
+    checkBackendConnection();
+
+    // Verificar conexão a cada 30 segundos
+    const intervalId = setInterval(checkBackendConnection, 30000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // useEffect para auto-save
+  useEffect(() => {
+    if (!autoSaveEnabled || connectionStatus !== 'connected') return;
+
+    const autoSave = async () => {
+      try {
+        setIsSaving(true);
+        const result = await saveToServer(cellData, null, autoSaveEnabled);
+        if (result.success) {
+          setLastSaved(new Date());
+        }
+        setIsSaving(false);
+      } catch (error) {
+        console.error('Erro no auto-save:', error);
+        setIsSaving(false);
+      }
+    };
+    
+    // Debounce de 2 segundos
+    const timeoutId = setTimeout(autoSave, 2000);
+    return () => clearTimeout(timeoutId);
+  }, [cellData, autoSaveEnabled, connectionStatus]);
+
+  // Novo: limpa a tabela, mas pede confirmaÃ§Ã£o se houver dados
   function handleNovo() {
     const hasData = cellData.some(row => row.some(cell => cell !== ''));
     if (hasData) {
-      if (!window.confirm('Os dados não salvos serão perdidos. Deseja continuar?')) {
+      if (!window.confirm('Os dados nÃ£o salvos serÃ£o perdidos. Deseja continuar?')) {
         return;
       }
     }
@@ -118,13 +192,13 @@ export default function MainContent() {
     fileInputRef.current?.click();
   }
 
-  // Fazer uma cópia: salva cópia em memória (simples)
+  // Fazer uma cÃ³pia: salva cÃ³pia em memÃ³ria (simples)
   const [copias, setCopias] = useState([]); // [{nome, data}]
   function handleFazerCopia() {
-    const nome = window.prompt('Nome da cópia:', 'Cópia de Book1');
+    const nome = window.prompt('Nome da cÃ³pia:', 'CÃ³pia de Book1');
     if (!nome) return;
     setCopias([...copias, { nome, data: JSON.parse(JSON.stringify(cellData)) }]);
-    window.alert('Cópia salva em memória!');
+    window.alert('CÃ³pia salva em memÃ³ria!');
   }
 
   function handleFileChange(e) {
@@ -138,31 +212,77 @@ export default function MainContent() {
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const sheetData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
       if (mode === 'abrir') {
-        // Sobrescreve tudo
-        const newData = createEmptyData();
-        for (let r = 0; r < Math.min(sheetData.length, rows.length); r++) {
-          for (let c = 0; c < Math.min(sheetData[r].length, columns.length); c++) {
+        // Sobrescreve tudo - expande o grid se necessário
+        const requiredRows = Math.max(sheetData.length, numRows);
+        const requiredCols = Math.max(Math.max(...sheetData.map(row => row ? row.length : 0)), numCols);
+        
+        // Expandir grid se necessário
+        if (requiredRows > numRows) {
+          setNumRows(requiredRows);
+        }
+        if (requiredCols > numCols) {
+          setNumCols(requiredCols);
+        }
+        
+        const newData = createEmptyData(requiredRows, requiredCols);
+        for (let r = 0; r < sheetData.length; r++) {
+          for (let c = 0; c < (sheetData[r] ? sheetData[r].length : 0); c++) {
             newData[r][c] = sheetData[r][c] !== undefined ? String(sheetData[r][c]) : '';
           }
         }
         setCellData(newData);
       } else if (mode === 'importar') {
-        // Mescla dados: só preenche células vazias
-        const newData = cellData.map(arr => [...arr]);
-        for (let r = 0; r < Math.min(sheetData.length, rows.length); r++) {
-          for (let c = 0; c < Math.min(sheetData[r].length, columns.length); c++) {
-            if (newData[r][c] === '' && sheetData[r][c] !== undefined && sheetData[r][c] !== '') {
+        // Mescla dados: sÃ³ preenche cÃ©lulas vazias
+        const requiredRows = Math.max(sheetData.length, cellData.length);
+        const requiredCols = Math.max(
+          Math.max(...sheetData.map(row => row ? row.length : 0)), 
+          Math.max(...cellData.map(row => row ? row.length : 0))
+        );
+        
+        // Expandir grid se necessário
+        if (requiredRows > numRows) {
+          setNumRows(requiredRows);
+        }
+        if (requiredCols > numCols) {
+          setNumCols(requiredCols);
+        }
+        
+        const newData = createEmptyData(requiredRows, requiredCols);
+        
+        // Copiar dados existentes
+        for (let r = 0; r < cellData.length; r++) {
+          for (let c = 0; c < (cellData[r]?.length || 0); c++) {
+            newData[r][c] = cellData[r]?.[c] || '';
+          }
+        }
+        
+        // Mesclar novos dados apenas em células vazias
+        for (let r = 0; r < sheetData.length; r++) {
+          for (let c = 0; c < (sheetData[r] ? sheetData[r].length : 0); c++) {
+            if ((!newData[r] || newData[r][c] === '') && sheetData[r][c] !== undefined && sheetData[r][c] !== '') {
               newData[r][c] = String(sheetData[r][c]);
             }
           }
         }
         setCellData(newData);
+        
+        // Mostrar informações sobre a importação
+        const totalRows = sheetData.length;
+        const totalCols = Math.max(...sheetData.map(row => row ? row.length : 0));
+        console.log(`✅ Planilha importada com sucesso!`);
+        console.log(`📊 Dimensões: ${totalRows} linhas x ${totalCols} colunas`);
+        console.log(`🔧 Grid expandido para: ${requiredRows} linhas x ${requiredCols} colunas`);
+        
+        // Mostrar alerta se a planilha for muito grande
+        if (totalRows > 1000) {
+          alert(`⚠️ Planilha grande importada: ${totalRows} linhas x ${totalCols} colunas\n\nO sistema pode ficar mais lento com planilhas muito grandes.`);
+        }
       }
     };
     reader.readAsArrayBuffer(file);
   }
 
-  // Histórico para desfazer/refazer
+  // HistÃ³rico para desfazer/refazer
   function pushHistory(newData) {
     setHistory(h => [...h, cellData]);
     setFuture([]);
@@ -193,14 +313,14 @@ export default function MainContent() {
   }
   function handleCortar() {
     const { row, col } = selectedCell;
-    setClipboard(cellData[row][col]);
+    setClipboard(cellData[row]?.[col] || '');
     const newData = cellData.map(arr => [...arr]);
     newData[row][col] = '';
     pushHistory(newData);
   }
   function handleCopiar() {
     const { row, col } = selectedCell;
-    setClipboard(cellData[row][col]);
+    setClipboard(cellData[row]?.[col] || '');
   }
   function handleColar() {
     const { row, col } = selectedCell;
@@ -209,7 +329,7 @@ export default function MainContent() {
     pushHistory(newData);
   }
   function handleColarEspecial() {
-    window.prompt('Colar especial (simulação): valor no clipboard =', clipboard);
+    window.prompt('Colar especial (simulaÃ§Ã£o): valor no clipboard =', clipboard);
   }
   function handleExcluir() {
     const { row, col } = selectedCell;
@@ -234,7 +354,7 @@ export default function MainContent() {
     if (novoNome && novoNome.trim()) setSheetName(novoNome.trim());
   }
 
-  // Salvar versão no backend
+  // Salvar versÃ£o no backend
   async function handleSalvarVersao() {
     const payload = {
       name: `${sheetName} (${new Date().toLocaleString()})`,
@@ -247,14 +367,14 @@ export default function MainContent() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
-      alert('Versão salva com sucesso!');
+      alert('VersÃ£o salva com sucesso!');
       fetchVersions();
     } else {
-      alert('Erro ao salvar versão.');
+      alert('Erro ao salvar versÃ£o.');
     }
   }
 
-  // Buscar versões do backend
+  // Buscar versÃµes do backend
   async function fetchVersions() {
     setLoadingVersions(true);
     const res = await fetch('/api/excel/versions/');
@@ -265,21 +385,21 @@ export default function MainContent() {
     setLoadingVersions(false);
   }
 
-  // Abrir modal de versões
+  // Abrir modal de versÃµes
   function handleShowVersions() {
     setShowVersions(true);
     fetchVersions();
   }
 
-  // Restaurar versão
+  // Restaurar versÃ£o
   function handleRestaurarVersao(version) {
     try {
       const data = JSON.parse(version.data);
       setCellData(data);
       setShowVersions(false);
-      alert('Versão restaurada!');
+      alert('VersÃ£o restaurada!');
     } catch {
-      alert('Erro ao restaurar versão.');
+      alert('Erro ao restaurar versÃ£o.');
     }
   }
 
@@ -287,7 +407,7 @@ export default function MainContent() {
   async function handleEnviarEmail() {
     const to_email = window.prompt('Digite o e-mail de destino:');
     if (!to_email) return;
-    // Monta dados como array de arrays (igual exportação)
+    // Monta dados como array de arrays (igual exportaÃ§Ã£o)
     const data = cellData;
     // Envia para backend
     const res = await fetch('/api/excel/exportar-email/', {
@@ -307,25 +427,25 @@ export default function MainContent() {
     }
   }
 
-  // Handlers para as opções do menu Arquivo
+  // Handlers para as opÃ§Ãµes do menu Arquivo
   const fileMenuHandlers = {
     'Novo': handleNovo,
     'Abrir': handleAbrir,
     'Importar': handleImportar,
-    'Fazer uma cópia': handleFazerCopia,
+    'Fazer uma cÃ³pia': handleFazerCopia,
     'Baixar': handleBaixar,
     'E-mail': handleEnviarEmail,
-    'Histórico de versões': handleShowVersions,
-    'Salvar versão': handleSalvarVersao,
+    'HistÃ³rico de versÃµes': handleShowVersions,
+    'Salvar versÃ£o': handleSalvarVersao,
     'Renomear': handleRenomear,
     'Detalhes': () => setShowDetails(true),
-    'Configurações': () => setShowConfig(true),
+    'ConfiguraÃ§Ãµes': () => setShowConfig(true),
     'Sair': async () => {
       const hasData = cellData.some(row => row.some(cell => cell !== ''));
       if (hasData) {
-        const op = window.confirm('Você tem dados não salvos. Deseja salvar antes de sair?');
+        const op = window.confirm('VocÃª tem dados nÃ£o salvos. Deseja salvar antes de sair?');
         if (op) {
-          await fileMenuHandlers['Salvar versão']();
+          await fileMenuHandlers['Salvar versÃ£o']();
         }
       }
       window.location.reload();
@@ -358,23 +478,23 @@ export default function MainContent() {
     setShowFormModal(true);
   }
   function handleMacros() {
-    setMacroText('Simulação: Macro gravada para copiar dados da coluna A para B.');
+    setMacroText('SimulaÃ§Ã£o: Macro gravada para copiar dados da coluna A para B.');
     setShowMacroModal(true);
   }
   function handleEditorScripts() {
-    setScriptText('// Simulação: Script para somar valores da coluna C.\nfunction somaColunaC() { /* ... */ }');
+    setScriptText('// SimulaÃ§Ã£o: Script para somar valores da coluna C.\nfunction somaColunaC() { /* ... */ }');
     setShowScriptModal(true);
   }
   function handleRevisao() {
-    setReviewText('Simulação: Nenhuma alteração pendente. Todas as células revisadas.');
+    setReviewText('SimulaÃ§Ã£o: Nenhuma alteraÃ§Ã£o pendente. Todas as cÃ©lulas revisadas.');
     setShowReviewModal(true);
   }
   function handleAcessibilidade() {
     setShowAccessibilityModal(true);
   }
-  // Ferramentas: Criar formulário real
+  // Ferramentas: Criar formulÃ¡rio real
   function handleCriarFormulario() {
-    const campos = window.prompt('Quais campos? (separados por vírgula)', 'Nome, E-mail, Telefone');
+    const campos = window.prompt('Quais campos? (separados por vÃ­rgula)', 'Nome, E-mail, Telefone');
     if (!campos) return;
     const fields = campos.split(',').map(f => f.trim());
     const values = fields.map(f => window.prompt(`Valor para ${f}:`, ''));
@@ -394,7 +514,7 @@ export default function MainContent() {
     if (!gravandoMacro) {
       setMacro([]);
       setGravandoMacro(true);
-      alert('Gravação de macro iniciada. Todas as edições serão gravadas. Clique novamente para parar.');
+      alert('GravaÃ§Ã£o de macro iniciada. Todas as ediÃ§Ãµes serÃ£o gravadas. Clique novamente para parar.');
     } else {
       setGravandoMacro(false);
       alert('Macro gravada! Clique em "Executar macro" para rodar.');
@@ -409,16 +529,16 @@ export default function MainContent() {
       });
     });
   }
-  // Hook para gravar edições na macro
+  // Hook para gravar ediÃ§Ãµes na macro
   React.useEffect(() => {
     if (!gravandoMacro) return;
     const lastEdit = history[history.length - 1];
     if (!lastEdit) return;
     const diffs = [];
     for (let r = 0; r < cellData.length; r++) {
-      for (let c = 0; c < cellData[r].length; c++) {
-        if (cellData[r][c] !== lastEdit[r][c]) {
-          diffs.push({ r, c, v: cellData[r][c] });
+      for (let c = 0; c < (cellData[r]?.length || 0); c++) {
+        if (cellData[r]?.[c] !== lastEdit[r]?.[c]) {
+          diffs.push({ r, c, v: cellData[r]?.[c] || '' });
         }
       }
     }
@@ -428,7 +548,7 @@ export default function MainContent() {
 
   // Ferramentas: Editor de scripts
   function handleEditorScripts() {
-    const script = window.prompt('Digite um JS para rodar nas células selecionadas. Use value para o valor da célula. Ex: value*2');
+    const script = window.prompt('Digite um JS para rodar nas cÃ©lulas selecionadas. Use value para o valor da cÃ©lula. Ex: value*2');
     if (!script) return;
     if (!selection.anchor || !selection.end) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
@@ -449,7 +569,7 @@ export default function MainContent() {
     });
   }
 
-  // Ferramentas: Revisão
+  // Ferramentas: RevisÃ£o
   function handleRevisao() {
     if (!selection.anchor || !selection.end) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
@@ -477,10 +597,10 @@ export default function MainContent() {
 
   // Atualizar toolsMenuHandlers
   const toolsMenuHandlers = {
-    'Criar formulário': handleCriarFormulario,
+    'Criar formulÃ¡rio': handleCriarFormulario,
     'Macros': handleMacros,
     'Editor de scripts': handleEditorScripts,
-    'Revisão': handleRevisao,
+    'RevisÃ£o': handleRevisao,
     'Acessibilidade': handleAcessibilidade
   };
 const menuOptions = {
@@ -488,14 +608,14 @@ const menuOptions = {
     'Novo',
     'Abrir',
     'Importar',
-    'Fazer uma cópia',
+    'Fazer uma cÃ³pia',
     'Baixar',
-    'Salvar versão',
+    'Salvar versÃ£o',
     'E-mail',
-    'Histórico de versões',
+    'HistÃ³rico de versÃµes',
     'Renomear',
     'Detalhes',
-    'Configurações',
+    'ConfiguraÃ§Ãµes',
     'Sair'
   ],
   'Editar': [
@@ -509,53 +629,53 @@ const menuOptions = {
     'Pesquisar e substituir'
   ],
   'Ver': [
-    'Modo de exibição',
+    'Modo de exibiÃ§Ã£o',
     'Congelar',
     'Ocultar linhas',
     'Ocultar colunas',
-    'Mostrar fórmulas',
+    'Mostrar fÃ³rmulas',
     'Zoom'
   ],
   'Inserir': [
     'Linha acima',
     'Linha abaixo',
-    'Coluna à esquerda',
-    'Coluna à direita',
-    'Células',
+    'Coluna Ã  esquerda',
+    'Coluna Ã  direita',
+    'CÃ©lulas',
     'Imagem',
-    'Gráfico',
-    'Caixa de seleção',
+    'GrÃ¡fico',
+    'Caixa de seleÃ§Ã£o',
     'Link',
-    'Comentário',
+    'ComentÃ¡rio',
     'Nota'
   ],
   'Formatar': [
     'Negrito',
-    'Itálico',
+    'ItÃ¡lico',
     'Sublinhado',
     'Tachado',
     'Cor do texto',
     'Cor de preenchimento',
     'Formatar como moeda',
     'Formatar como porcentagem',
-    'Formatar como número',
+    'Formatar como nÃºmero',
     'Alinhar',
     'Quebra de texto',
-    'Mesclar células'
+    'Mesclar cÃ©lulas'
   ],
   'Dados': [
     'Classificar',
     'Criar filtro',
-    'Validação de dados',
+    'ValidaÃ§Ã£o de dados',
     'Remover duplicatas',
     'Dividir texto em colunas',
     'Proteger intervalo'
   ],
   'Ferramentas': [
-    'Criar formulário',
+    'Criar formulÃ¡rio',
     'Macros',
     'Editor de scripts',
-    'Revisão',
+    'RevisÃ£o',
     'Acessibilidade'
   ],
 };
@@ -580,7 +700,7 @@ const menuItems = Object.keys(menuOptions);
     setNumRows(r => r + 1);
     setSelectedCell({ row: row + 1, col: selectedCell.col });
   }
-  // Inserir coluna à esquerda
+  // Inserir coluna Ã  esquerda
   function handleInserirColunaEsquerda() {
     const { col } = selectedCell;
     const newData = cellData.map(row => {
@@ -592,7 +712,7 @@ const menuItems = Object.keys(menuOptions);
     setNumCols(c => c + 1);
     setSelectedCell({ row: selectedCell.row, col: col });
   }
-  // Inserir coluna à direita
+  // Inserir coluna Ã  direita
   function handleInserirColunaDireita() {
     const { col } = selectedCell;
     const newData = cellData.map(row => {
@@ -604,7 +724,7 @@ const menuItems = Object.keys(menuOptions);
     setNumCols(c => c + 1);
     setSelectedCell({ row: selectedCell.row, col: col + 1 });
   }
-  // Inserir célula (shift para baixo)
+  // Inserir cÃ©lula (shift para baixo)
   function handleInserirCelula() {
     const { row, col } = selectedCell;
     const newData = cellData.map(arr => [...arr]);
@@ -614,7 +734,7 @@ const menuItems = Object.keys(menuOptions);
     newData[row][col] = '';
     setCellData(newData);
   }
-  // Inserir caixa de seleção
+  // Inserir caixa de seleÃ§Ã£o
   function handleInserirCheckbox() {
     const { row, col } = selectedCell;
     setCellTypes(prev => ({ ...prev, [`${row}-${col}`]: { type: 'checkbox', value: false } }));
@@ -625,10 +745,10 @@ const menuItems = Object.keys(menuOptions);
     const url = window.prompt('Digite a URL do link:');
     if (url) setCellTypes(prev => ({ ...prev, [`${row}-${col}`]: { type: 'link', value: url } }));
   }
-  // Inserir comentário
+  // Inserir comentÃ¡rio
   function handleInserirComentario() {
     const { row, col } = selectedCell;
-    const comentario = window.prompt('Digite o comentário:');
+    const comentario = window.prompt('Digite o comentÃ¡rio:');
     if (comentario) setCellTypes(prev => ({ ...prev, [`${row}-${col}`]: { type: 'comment', value: comentario } }));
   }
   // Inserir nota
@@ -642,14 +762,14 @@ const menuItems = Object.keys(menuOptions);
   const insertMenuHandlers = {
     'Linha acima': handleInserirLinhaAcima,
     'Linha abaixo': handleInserirLinhaAbaixo,
-    'Coluna à esquerda': handleInserirColunaEsquerda,
-    'Coluna à direita': handleInserirColunaDireita,
-    'Células': handleInserirCelula,
+    'Coluna Ã  esquerda': handleInserirColunaEsquerda,
+    'Coluna Ã  direita': handleInserirColunaDireita,
+    'CÃ©lulas': handleInserirCelula,
     'Imagem': handleInserirImagem,
-    'Gráfico': handleInserirGrafico,
-    'Caixa de seleção': handleInserirCheckbox,
+    'GrÃ¡fico': handleInserirGrafico,
+    'Caixa de seleÃ§Ã£o': handleInserirCheckbox,
     'Link': handleInserirLink,
-    'Comentário': handleInserirComentario,
+    'ComentÃ¡rio': handleInserirComentario,
     'Nota': handleInserirNota
   };
 
@@ -682,7 +802,7 @@ const menuItems = Object.keys(menuOptions);
       [`${row}-${col}`]: { ...prev[`${row}-${col}`], bold: !prev[`${row}-${col}`]?.bold }
     }));
   }
-  // Formatar: Itálico
+  // Formatar: ItÃ¡lico
   function handleItalico() {
     const { row, col } = selectedCell;
     setCellStyles(prev => ({
@@ -740,7 +860,7 @@ const menuItems = Object.keys(menuOptions);
       [`${row}-${col}`]: { ...prev[`${row}-${col}`], format: prev[`${row}-${col}`]?.format === 'porcentagem' ? undefined : 'porcentagem' }
     }));
   }
-  // Formatar: Número
+  // Formatar: NÃºmero
   function handleNumero() {
     const { row, col } = selectedCell;
     setCellStyles(prev => ({
@@ -765,7 +885,7 @@ const menuItems = Object.keys(menuOptions);
       [`${row}-${col}`]: { ...prev[`${row}-${col}`], wrap: !prev[`${row}-${col}`]?.wrap }
     }));
   }
-  // Seleção múltipla de células estilo Excel
+  // SeleÃ§Ã£o mÃºltipla de cÃ©lulas estilo Excel
   const [selection, setSelection] = useState({ anchor: null, end: null });
 
   function handleCellMouseDown(rIdx, cIdx) {
@@ -798,7 +918,7 @@ const menuItems = Object.keys(menuOptions);
     }
   }
 
-  // Corrigir seleção múltipla estilo Excel
+  // Corrigir seleÃ§Ã£o mÃºltipla estilo Excel
   function handleCellKeyDown(e, rIdx, cIdx) {
     let nextRow = rIdx;
     let nextCol = cIdx;
@@ -847,10 +967,10 @@ const menuItems = Object.keys(menuOptions);
     }
   }
 
-  // Menu Inserir > Gráfico gera gráfico real com base na seleção
+  // Menu Inserir > GrÃ¡fico gera grÃ¡fico real com base na seleÃ§Ã£o
   function handleInserirGrafico() {
     if (!selection.anchor || !selection.end) {
-      alert('Selecione um intervalo de células para gerar o gráfico.');
+      alert('Selecione um intervalo de cÃ©lulas para gerar o grÃ¡fico.');
       return;
     }
     const minRow = Math.min(selection.anchor.row, selection.end.row);
@@ -861,15 +981,15 @@ const menuItems = Object.keys(menuOptions);
     const labels = [];
     const data = [];
     for (let r = minRow; r <= maxRow; r++) {
-      let label = cellData[r][minCol];
-      let val = parseFloat(cellData[r][maxCol]);
+      let label = cellData[r]?.[minCol] || '';
+      let val = parseFloat(cellData[r]?.[maxCol] || '0');
       if (!isNaN(val)) {
         labels.push(label);
         data.push(val);
       }
     }
     if (labels.length === 0) {
-      alert('Selecione um intervalo de células com pelo menos uma coluna de texto e uma de números.');
+      alert('Selecione um intervalo de cÃ©lulas com pelo menos uma coluna de texto e uma de nÃºmeros.');
       return;
     }
     setChartData({
@@ -879,17 +999,17 @@ const menuItems = Object.keys(menuOptions);
     setShowChartModal(true);
   }
 
-  // Mesclar células real
+  // Mesclar cÃ©lulas real
   function handleMesclarCelulas() {
     if (!selection.anchor || !selection.end) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
     const maxRow = Math.max(selection.anchor.row, selection.end.row);
     const minCol = Math.min(selection.anchor.col, selection.end.col);
     const maxCol = Math.max(selection.anchor.col, selection.end.col);
-    if (minRow === maxRow && minCol === maxCol) return; // só uma célula
-    // Salvar conteúdo da célula superior esquerda
-    const mainValue = cellData[minRow][minCol];
-    // Limpar as outras células
+    if (minRow === maxRow && minCol === maxCol) return; // sÃ³ uma cÃ©lula
+    // Salvar conteÃºdo da cÃ©lula superior esquerda
+    const mainValue = cellData[minRow]?.[minCol] || '';
+    // Limpar as outras cÃ©lulas
     const newData = cellData.map((row, r) =>
       row.map((cell, c) =>
         (r >= minRow && r <= maxRow && c >= minCol && c <= maxCol && !(r === minRow && c === minCol)) ? '' : cell
@@ -913,7 +1033,7 @@ const menuItems = Object.keys(menuOptions);
       return newStyles;
     });
   }
-  // Desfazer mesclagem (ao clicar na célula mesclada)
+  // Desfazer mesclagem (ao clicar na cÃ©lula mesclada)
   function handleDesfazerMesclagem(rIdx, cIdx) {
     const style = cellStyles[`${rIdx}-${cIdx}`];
     if (!style?.mergeRoot) return;
@@ -936,17 +1056,17 @@ const menuItems = Object.keys(menuOptions);
   // Handlers para o menu Formatar
   const formatMenuHandlers = {
     'Negrito': handleNegrito,
-    'Itálico': handleItalico,
+    'ItÃ¡lico': handleItalico,
     'Sublinhado': handleSublinhado,
     'Tachado': handleTachado,
     'Cor do texto': handleCorTexto,
     'Cor de preenchimento': handleCorPreenchimento,
     'Formatar como moeda': handleMoeda,
     'Formatar como porcentagem': handlePorcentagem,
-    'Formatar como número': handleNumero,
+    'Formatar como nÃºmero': handleNumero,
     'Alinhar': handleAlinhar,
     'Quebra de texto': handleQuebraTexto,
-    'Mesclar células': handleMesclarCelulas
+    'Mesclar cÃ©lulas': handleMesclarCelulas
   };
 
   // Classificar linhas pela coluna selecionada
@@ -968,7 +1088,7 @@ const menuItems = Object.keys(menuOptions);
     setCellData(sorted);
   }
 
-  // Remover duplicatas na seleção
+  // Remover duplicatas na seleÃ§Ã£o
   function handleRemoverDuplicatas() {
     if (!selection.anchor || !selection.end) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
@@ -988,7 +1108,7 @@ const menuItems = Object.keys(menuOptions);
     setCellData(newData);
   }
 
-  // Dividir texto em colunas (por vírgula)
+  // Dividir texto em colunas (por vÃ­rgula)
   function handleDividirTexto() {
     if (!selection.anchor || !selection.end) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
@@ -1004,25 +1124,25 @@ const menuItems = Object.keys(menuOptions);
     setCellData(newData);
   }
 
-  // Filtro real: exibir/ocultar linhas por critério
+  // Filtro real: exibir/ocultar linhas por critÃ©rio
   function handleCriarFiltro() {
     if (!selection.anchor || !selection.end) return;
     const col = selectedCell.col;
-    const criterio = window.prompt('Filtrar: mostrar apenas linhas que contenham (texto ou número):');
+    const criterio = window.prompt('Filtrar: mostrar apenas linhas que contenham (texto ou nÃºmero):');
     if (criterio === null) return;
     const newHiddenRows = [];
     for (let r = 0; r < cellData.length; r++) {
       if (r < selection.anchor.row || r > selection.end.row) continue;
-      const val = String(cellData[r][col]);
+      const val = String(cellData[r]?.[col] || '');
       if (!val.includes(criterio)) newHiddenRows.push(r);
     }
     setHiddenRows(newHiddenRows);
   }
 
-  // Validação de dados: impedir valores inválidos (ex: só números)
+  // ValidaÃ§Ã£o de dados: impedir valores invÃ¡lidos (ex: sÃ³ nÃºmeros)
   function handleValidacaoDados() {
     if (!selection.anchor || !selection.end) return;
-    const tipo = window.prompt('Tipo de validação: "numero" para só números, "texto" para só texto:');
+    const tipo = window.prompt('Tipo de validaÃ§Ã£o: "numero" para sÃ³ nÃºmeros, "texto" para sÃ³ texto:');
     if (!tipo) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
     const maxRow = Math.max(selection.anchor.row, selection.end.row);
@@ -1039,7 +1159,7 @@ const menuItems = Object.keys(menuOptions);
     });
   }
 
-  // Proteger intervalo: bloquear edição de células selecionadas
+  // Proteger intervalo: bloquear ediÃ§Ã£o de cÃ©lulas selecionadas
   function handleProtegerIntervalo() {
     if (!selection.anchor || !selection.end) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
@@ -1061,7 +1181,7 @@ const menuItems = Object.keys(menuOptions);
   const dataMenuHandlers = {
     'Classificar': handleClassificar,
     'Criar filtro': handleCriarFiltro,
-    'Validação de dados': handleValidacaoDados,
+    'ValidaÃ§Ã£o de dados': handleValidacaoDados,
     'Remover duplicatas': handleRemoverDuplicatas,
     'Dividir texto em colunas': handleDividirTexto,
     'Proteger intervalo': handleProtegerIntervalo
@@ -1074,7 +1194,7 @@ const menuItems = Object.keys(menuOptions);
     // Se chegou perto do fim das colunas, adiciona mais
     if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 50) {
       setNumCols(c => {
-        if (c < 500) return c + 10; // Limite de segurança
+        if (c < 500) return c + 10; // Limite de seguranÃ§a
         return c;
       });
       setCellData(data => data.map(row => [...row, ...Array(10).fill('')]));
@@ -1082,17 +1202,17 @@ const menuItems = Object.keys(menuOptions);
     // Se chegou perto do fim das linhas, adiciona mais
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
       setNumRows(r => {
-        if (r < 1000) return r + 20; // Limite de segurança
+        if (r < 1000) return r + 20; // Limite de seguranÃ§a
         return r;
       });
       setCellData(data => [...data, ...Array(20).fill().map(() => Array(numCols).fill(''))]);
     }
   }
 
-  // Refs para inputs das células
+  // Refs para inputs das cÃ©lulas
   const cellRefs = useRef({});
 
-  // Foco automático na célula selecionada
+  // Foco automÃ¡tico na cÃ©lula selecionada
   React.useEffect(() => {
     const key = `${selectedCell.row}-${selectedCell.col}`;
     if (cellRefs.current[key]) {
@@ -1100,7 +1220,7 @@ const menuItems = Object.keys(menuOptions);
     }
   }, [selectedCell]);
 
-  // Persistência automática no localStorage (corrigida)
+  // PersistÃªncia automÃ¡tica no localStorage (corrigida)
   const [initialized, setInitialized] = useState(false);
   React.useEffect(() => {
     if (!initialized) return;
@@ -1129,13 +1249,13 @@ const menuItems = Object.keys(menuOptions);
 
   // Imagens flutuantes
   function getCellPosition(row, col) {
-    // Calcula a posição absoluta da célula na grade (ajuste conforme seu layout)
+    // Calcula a posiÃ§Ã£o absoluta da cÃ©lula na grade (ajuste conforme seu layout)
     const top = 28 + row * 28; // 28px header + 28px por linha
     const left = 40 + col * 100; // 40px num col + 100px por coluna
     return { top, left };
   }
 
-  // Remover imagem da célula
+  // Remover imagem da cÃ©lula
   function handleRemoverImagem(row, col) {
     setCellTypes(prev => {
       const newTypes = { ...prev };
@@ -1150,7 +1270,7 @@ const menuItems = Object.keys(menuOptions);
     handleInserirImagem();
   }
 
-  // Gerar gráfico real a partir do intervalo selecionado
+  // Gerar grÃ¡fico real a partir do intervalo selecionado
   function handleGerarGrafico() {
     if (!selection.anchor || !selection.end) return;
     const minRow = Math.min(selection.anchor.row, selection.end.row);
@@ -1162,14 +1282,14 @@ const menuItems = Object.keys(menuOptions);
     const data = [];
     for (let r = minRow; r <= maxRow; r++) {
       let label = rows[r];
-      let val = parseFloat(cellData[r][minCol]);
+      let val = parseFloat(cellData[r]?.[minCol] || '0');
       if (!isNaN(val)) {
         labels.push(label);
         data.push(val);
       }
     }
     if (labels.length === 0) {
-      alert('Selecione um intervalo de células numéricas para gerar o gráfico.');
+      alert('Selecione um intervalo de cÃ©lulas numÃ©ricas para gerar o grÃ¡fico.');
       return;
     }
     setChartData({
@@ -1221,7 +1341,7 @@ const menuItems = Object.keys(menuOptions);
         <button className="icon-btn" title="Desfazer"><MdUndo /></button>
         <button className="icon-btn" title="Refazer"><MdRedo /></button>
         <button className="icon-btn" title="Imprimir"><MdPrint /></button>
-        <button className="icon-btn" title="Pintar formatação"><MdFormatPaint /></button>
+        <button className="icon-btn" title="Pintar formataÃ§Ã£o"><MdFormatPaint /></button>
         <select className="icon-select" title="Zoom" defaultValue="100%">
           <option>50%</option>
           <option>75%</option>
@@ -1233,8 +1353,8 @@ const menuItems = Object.keys(menuOptions);
         <button className="icon-btn" title="Porcentagem"><MdPercent /></button>
         <button className="icon-btn" title="Diminuir casas decimais"><MdExposureNeg1 /></button>
         <button className="icon-btn" title="Aumentar casas decimais"><MdExposurePlus1 /></button>
-        <select className="icon-select" title="Fonte" defaultValue="Padrão (Arial)">
-          <option>Padrão (Arial)</option>
+        <select className="icon-select" title="Fonte" defaultValue="PadrÃ£o (Arial)">
+          <option>PadrÃ£o (Arial)</option>
           <option>Times New Roman</option>
           <option>Calibri</option>
         </select>
@@ -1245,26 +1365,26 @@ const menuItems = Object.keys(menuOptions);
           <option>16</option>
         </select>
         <button className="icon-btn" title="Negrito"><MdFormatBold /></button>
-        <button className="icon-btn" title="Itálico"><MdFormatItalic /></button>
+        <button className="icon-btn" title="ItÃ¡lico"><MdFormatItalic /></button>
         <button className="icon-btn" title="Tachar"><MdStrikethroughS /></button>
         <button className="icon-btn" title="Cor do texto"><MdFormatColorText /></button>
         <button className="icon-btn" title="Cor de preenchimento"><MdFormatColorFill /></button>
         <button className="icon-btn" title="Bordas"><MdBorderAll /></button>
-        <button className="icon-btn" title="Mesclar células"><MdMergeType /></button>
-        <button className="icon-btn" title="Alinhar à esquerda"><MdFormatAlignLeft /></button>
+        <button className="icon-btn" title="Mesclar cÃ©lulas"><MdMergeType /></button>
+        <button className="icon-btn" title="Alinhar Ã  esquerda"><MdFormatAlignLeft /></button>
         <button className="icon-btn" title="Alinhar ao centro"><MdFormatAlignCenter /></button>
-        <button className="icon-btn" title="Alinhar à direita"><MdFormatAlignRight /></button>
+        <button className="icon-btn" title="Alinhar Ã  direita"><MdFormatAlignRight /></button>
         <button className="icon-btn" title="Ajuste de texto"><MdWrapText /></button>
         <button className="icon-btn" title="Inserir link"><MdInsertLink /></button>
-        <button className="icon-btn" title="Inserir comentário"><MdInsertComment /></button>
-        <button className="icon-btn" title="Inserir gráfico"><MdInsertChart /></button>
+        <button className="icon-btn" title="Inserir comentÃ¡rio"><MdInsertComment /></button>
+        <button className="icon-btn" title="Inserir grÃ¡fico"><MdInsertChart /></button>
         <button className="icon-btn" title="Filtro"><MdFilterList /></button>
       </div>
       {/* Planilha estilo Excel */}
       <div className="excel-container" style={{ position: 'relative', border: '1px solid #ccc', overflow: 'hidden' }}>
         <div style={{ width: '100%', height: '100%', overflow: 'auto', position: 'relative' }} onScroll={handleCellsScroll}>
           <div style={{ minWidth: columns.length * 100 + 40, minHeight: (rows.length + 1) * 28, position: 'relative', width: 'fit-content', height: 'fit-content' }}>
-            {/* Cabeçalho de colunas e números de linha juntos */}
+            {/* CabeÃ§alho de colunas e nÃºmeros de linha juntos */}
             <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 3 }}>
               {/* Canto superior esquerdo */}
               <div style={{ width: 40, height: 28, background: '#e0e0e0', borderRight: '1.5px solid #bdbdbd', borderBottom: '1.5px solid #bdbdbd', position: 'sticky', left: 0, zIndex: 4 }}></div>
@@ -1277,7 +1397,7 @@ const menuItems = Object.keys(menuOptions);
             {rows.map((row, rIdx) => (
               hiddenRows.includes(rIdx) ? null :
               <div key={rIdx} style={{ display: 'flex' }}>
-                {/* Número da linha sticky à esquerda */}
+                {/* NÃºmero da linha sticky Ã  esquerda */}
                 <div style={{ width: 40, minWidth: 40, maxWidth: 40, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', borderRight: '1.5px solid #bdbdbd', borderBottom: '1px solid #ccc', background: '#f5f5f5', position: 'sticky', left: 0, zIndex: 2 }}>{row}</div>
                 {columns.map((col, cIdx) => {
                   if (hiddenCols.includes(cIdx)) return null;
@@ -1285,7 +1405,7 @@ const menuItems = Object.keys(menuOptions);
                   const cellType = cellTypes[cellKey]?.type;
                   const cellValue = cellTypes[cellKey]?.value;
                   const styleObj = cellStyles[cellKey] || {};
-                  let displayValue = cellData[rIdx][cIdx];
+                  let displayValue = cellData[rIdx]?.[cIdx] || '';
                   if (styleObj.format === 'moeda') displayValue = `R$ ${displayValue}`;
                   if (styleObj.format === 'porcentagem') displayValue = `${displayValue}%`;
                   if (styleObj.format === 'numero') displayValue = Number(displayValue).toLocaleString();
@@ -1305,7 +1425,7 @@ const menuItems = Object.keys(menuOptions);
                         if (cellStyles[cellKey]?.mergeRoot) handleDesfazerMesclagem(rIdx, cIdx);
                       }}
                     >
-                      {/* Renderização da célula, igual antes */}
+                      {/* RenderizaÃ§Ã£o da cÃ©lula, igual antes */}
                       {cellType === 'image' ? (
                         <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           onDoubleClick={() => handleTrocarImagem(rIdx, cIdx)}>
@@ -1314,7 +1434,7 @@ const menuItems = Object.keys(menuOptions);
                             style={{ position: 'absolute', top: 2, right: 2, background: '#fff', border: '1px solid #ccc', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, opacity: 0.8 }}
                             title="Remover imagem"
                             onClick={e => { e.stopPropagation(); handleRemoverImagem(rIdx, cIdx); }}
-                          >✕</button>
+                          >â</button>
                         </div>
                       ) : cellType === 'checkbox' ? (
                         <input
@@ -1348,7 +1468,7 @@ const menuItems = Object.keys(menuOptions);
                               pushHistory(newData);
                             }}
                           />
-                          <span title={cellValue} style={{ position: 'absolute', right: 2, top: 2, fontSize: 14, color: '#f90', cursor: 'pointer' }}>💬</span>
+                          <span title={cellValue} style={{ position: 'absolute', right: 2, top: 2, fontSize: 14, color: '#f90', cursor: 'pointer' }}>ð¬</span>
                         </>
                       ) : cellType === 'note' ? (
                         <>
@@ -1364,14 +1484,14 @@ const menuItems = Object.keys(menuOptions);
                               pushHistory(newData);
                             }}
                           />
-                          <span title={cellValue} style={{ position: 'absolute', right: 2, bottom: 2, fontSize: 14, color: '#09f', cursor: 'pointer' }}>📝</span>
+                          <span title={cellValue} style={{ position: 'absolute', right: 2, bottom: 2, fontSize: 14, color: '#09f', cursor: 'pointer' }}>ð</span>
                         </>
                       ) : cellType === 'chart' ? (
                         <button
                           className={'cells__input' + (selectedCell.row === rIdx && selectedCell.col === cIdx ? ' selected' : '')}
                           style={{ background: '#e3f2fd', border: '1px solid #90caf9', cursor: 'pointer', fontWeight: styleObj.bold ? 'bold' : undefined, fontStyle: styleObj.italic ? 'italic' : undefined, textDecoration: `${styleObj.underline ? 'underline ' : ''}${styleObj.strike ? 'line-through' : ''}`, textAlign: styleObj.align, whiteSpace: styleObj.wrap ? 'pre-wrap' : undefined }}
                           onClick={() => setShowChartModal(true)}
-                        >📊 Gráfico</button>
+                        >ð GrÃ¡fico</button>
                       ) : (
                         <input
                           ref={el => { cellRefs.current[`${rIdx}-${cIdx}`] = el; }}
@@ -1383,11 +1503,11 @@ const menuItems = Object.keys(menuOptions);
                           onClick={() => setSelectedCell({ row: rIdx, col: cIdx })}
                           onChange={e => {
                             if (styleObj.validation === 'numero' && isNaN(Number(e.target.value))) {
-                              alert('Apenas números são permitidos nesta célula.');
+                              alert('Apenas nÃºmeros sÃ£o permitidos nesta cÃ©lula.');
                               return;
                             }
                             if (styleObj.validation === 'texto' && /\d/.test(e.target.value)) {
-                              alert('Apenas texto é permitido nesta célula.');
+                              alert('Apenas texto Ã© permitido nesta cÃ©lula.');
                               return;
                             }
                             const newData = cellData.map(arr => [...arr]);
@@ -1398,14 +1518,14 @@ const menuItems = Object.keys(menuOptions);
                         />
                       )}
                       {cellStyles[cellKey]?.protected && (
-                        <span title="Protegida" style={{ position: 'absolute', left: 2, top: 2, fontSize: 12, color: '#c00' }}>🔒</span>
+                        <span title="Protegida" style={{ position: 'absolute', left: 2, top: 2, fontSize: 12, color: '#c00' }}>ð</span>
                       )}
                     </div>
                   );
                 })}
               </div>
             ))}
-            {/* Retângulo de seleção múltipla - só se anchor e end forem diferentes */}
+            {/* RetÃ¢ngulo de seleÃ§Ã£o mÃºltipla - sÃ³ se anchor e end forem diferentes */}
             {selection.anchor && selection.end && (selection.anchor.row !== selection.end.row || selection.anchor.col !== selection.end.col) && (() => {
               const minRow = Math.min(selection.anchor.row, selection.end.row);
               const maxRow = Math.max(selection.anchor.row, selection.end.row);
@@ -1425,31 +1545,38 @@ const menuItems = Object.keys(menuOptions);
           onClick={executarMacro}
         >Executar macro</button>
       )}
-      {/* Modal de gráfico fake */}
+      {/* Modal de grÃ¡fico fake */}
       <ChartModal show={showChartModal} onClose={() => setShowChartModal(false)} chartData={chartData} />
-      {/* Modal Criar Formulário */}
+      {/* Modal Criar FormulÃ¡rio */}
       <FormModal show={showFormModal} onClose={() => setShowFormModal(false)} formFields={formFields} />
       {/* Modal Macros */}
       <MacroModal show={showMacroModal} onClose={() => setShowMacroModal(false)} macroText={macroText} />
       {/* Modal Editor de Scripts */}
       <ScriptModal show={showScriptModal} onClose={() => setShowScriptModal(false)} scriptText={scriptText} />
-      {/* Modal Revisão */}
+      {/* Modal RevisÃ£o */}
       <ReviewModal show={showReviewModal} onClose={() => setShowReviewModal(false)} reviewText={reviewText} />
       {/* Modal Acessibilidade */}
       <AccessibilityModal show={showAccessibilityModal} onClose={() => setShowAccessibilityModal(false)} />
       {/* Modal Pesquisar e Substituir */}
       <FindReplaceModal show={showFindReplace} onClose={() => setShowFindReplace(false)} findValue={findValue} setFindValue={setFindValue} replaceValue={replaceValue} setReplaceValue={setReplaceValue} onReplaceAll={doFindReplace} />
-      {/* Modal de versões */}
+      {/* Modal de versÃµes */}
       <VersionsModal show={showVersions} onClose={() => setShowVersions(false)} loadingVersions={loadingVersions} versions={versions} onRestoreVersion={handleRestaurarVersao} />
       {/* Modal de detalhes */}
       <DetailsModal show={showDetails} onClose={() => setShowDetails(false)} sheetName={sheetName} rows={rows} columns={columns} />
-      {/* Modal de configurações */}
+      {/* Modal de configuraÃ§Ãµes */}
       <ConfigModal show={showConfig} onClose={() => setShowConfig(false)} />
 
       {/* ChatBox flutuante */}
       <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 3000, boxShadow: '0 2px 12px rgba(0,0,0,0.13)', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
         <ChatBox username={sheetName} />
       </div>
+      
+      {/* Status de conexão com o backend */}
+      <ConnectionStatus 
+        status={connectionStatus}
+        isSaving={isSaving}
+        lastSaved={lastSaved}
+      />
       {/* Imagens flutuantes */}
       {Object.entries(cellTypes).filter(([k, v]) => v.type === 'image').map(([key, v]) => {
         const [row, col] = key.split('-').map(Number);
@@ -1470,7 +1597,7 @@ const menuItems = Object.keys(menuOptions);
               style={{ position: 'absolute', top: 2, right: 2, background: '#fff', border: '1px solid #ccc', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, opacity: 0.8 }}
               title="Remover imagem"
               onClick={e => { e.stopPropagation(); handleRemoverImagem(row, col); }}
-            >✕</button>
+            >â</button>
           </div>
         );
       })}

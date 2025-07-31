@@ -1,15 +1,13 @@
-
-import Navbar from './components/Navbar';
-import MainContent from './components/MainContent';
-import './App.css';
+import React from 'react'
+import './App.css'
+import MainContent from './components/MainContent'
 
 function App() {
   return (
-    <>
-      <Navbar />
+    <div className="App">
       <MainContent />
-    </>
-  );
+    </div>
+  )
 }
 
 export default App

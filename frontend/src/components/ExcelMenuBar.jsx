@@ -27,7 +27,7 @@ export default function ExcelMenuBar({ menuOptions, menuHandlers }) {
     setHoveredMenu(menu);
   }
 
-  // Navegação por teclado
+  // Navegaï¿½ï¿½o por teclado
   function handleMenuKeyDown(e, menu) {
     if (e.key === 'ArrowRight') {
       const menus = Object.keys(menuOptions);
