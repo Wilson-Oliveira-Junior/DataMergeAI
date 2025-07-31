@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { MdUndo, MdRedo, MdPrint, MdFormatPaint, MdAttachMoney, MdPercent, MdExposureNeg1, MdExposurePlus1, MdFormatBold, MdFormatItalic, MdStrikethroughS, MdFormatColorText, MdFormatColorFill, MdBorderAll, MdMergeType, MdFormatAlignLeft, MdFormatAlignCenter, MdFormatAlignRight, MdWrapText, MdInsertLink, MdInsertComment, MdInsertChart, MdFilterList } from 'react-icons/md';
 import './MainContent.css';
@@ -19,7 +19,7 @@ import ExcelMenuBar from './ExcelMenuBar';
 import ConnectionStatus from './ConnectionStatus';
 import { saveToServer, loadFromServer, sendChatMessage, loadChatMessages, checkConnection } from '../utils/api';
 
-// FunÃ§Ã£o utilitÃ¡ria para gerar cabeÃ§alhos de coluna estilo Excel
+// Função utilitária para gerar cabeçalhos de coluna estilo Excel
 function getColumnLabel(n) {
   let label = '';
   while (n >= 0) {
@@ -30,13 +30,18 @@ function getColumnLabel(n) {
 }
 
 export default function MainContent() {
-  const [numRows, setNumRows] = useState(1000);
-  const [numCols, setNumCols] = useState(100);
-  const columns = Array.from({ length: numCols }, (_, i) => getColumnLabel(i));
-  const rows = Array.from({ length: numRows }, (_, i) => i + 1);
+  // REDUZINDO drasticamente o tamanho inicial para melhorar performance
+  const [numRows, setNumRows] = useState(100); // Reduzido de 1000 para 100
+  const [numCols, setNumCols] = useState(26); // Reduzido de 100 para 26 (A-Z)
+  
+  // Memoizando arrays para evitar recriações desnecessárias
+  const columns = useMemo(() => Array.from({ length: numCols }, (_, i) => getColumnLabel(i)), [numCols]);
+  const rows = useMemo(() => Array.from({ length: numRows }, (_, i) => i + 1), [numRows]);
+  
   function createEmptyData(rowsLen = numRows, colsLen = numCols) {
     return Array.from({ length: rowsLen }, () => Array(colsLen).fill(''));
   }
+  
   const [cellData, setCellData] = useState(createEmptyData());
   
   // Função para garantir que cellData tenha o tamanho correto
@@ -58,6 +63,47 @@ export default function MainContent() {
     ensureCellDataSize();
   }, [numRows, numCols]);
 
+  // Estados de conexão com backend - memoizados para evitar re-renders
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [lastSaved, setLastSaved] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [isLoadingChat, setIsLoadingChat] = useState(false);
+
+  // Verificar conexão com backend apenas uma vez ao montar
+  useEffect(() => {
+    const checkBackendConnection = async () => {
+      try {
+        const status = await checkConnection();
+        setConnectionStatus(status);
+      } catch (error) {
+        setConnectionStatus('disconnected');
+      }
+    };
+    checkBackendConnection();
+  }, []);
+
+  // Auto-save otimizado - apenas quando necessário
+  useEffect(() => {
+    if (!autoSaveEnabled || !connectionStatus === 'connected') return;
+    
+    const autoSave = async () => {
+      if (isSaving) return;
+      setIsSaving(true);
+      try {
+        await saveToServer(cellData);
+        setLastSaved(new Date());
+      } catch (error) {
+        console.error('Erro no auto-save:', error);
+      } finally {
+        setIsSaving(false);
+      }
+    };
+    
+    const timeoutId = setTimeout(autoSave, 2000); // Delay de 2 segundos
+    return () => clearTimeout(timeoutId);
+  }, [cellData, autoSaveEnabled, connectionStatus, isSaving]);
 
   const [cellTypes, setCellTypes] = useState({});
   const [cellStyles, setCellStyles] = useState({});
@@ -115,57 +161,6 @@ export default function MainContent() {
   const [replaceValue, setReplaceValue] = useState('');
   const fileInputRef = useRef(null);
   
-  // Estados para integração com backend
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
-  const [lastSaved, setLastSaved] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('disconnected');
-  const [chatMessages, setChatMessages] = useState([]);
-  const [isLoadingChat, setIsLoadingChat] = useState(false);
-
-  // useEffect para verificar conexão com backend
-  useEffect(() => {
-    const checkBackendConnection = async () => {
-      try {
-        const status = await checkConnection();
-        setConnectionStatus(status);
-      } catch (error) {
-        console.error('Erro ao verificar conexão:', error);
-        setConnectionStatus('disconnected');
-      }
-    };
-
-    // Verificar conexão inicial
-    checkBackendConnection();
-
-    // Verificar conexão a cada 30 segundos
-    const intervalId = setInterval(checkBackendConnection, 30000);
-    return () => clearInterval(intervalId);
-  }, []);
-
-  // useEffect para auto-save
-  useEffect(() => {
-    if (!autoSaveEnabled || connectionStatus !== 'connected') return;
-
-    const autoSave = async () => {
-      try {
-        setIsSaving(true);
-        const result = await saveToServer(cellData, null, autoSaveEnabled);
-        if (result.success) {
-          setLastSaved(new Date());
-        }
-        setIsSaving(false);
-      } catch (error) {
-        console.error('Erro no auto-save:', error);
-        setIsSaving(false);
-      }
-    };
-    
-    // Debounce de 2 segundos
-    const timeoutId = setTimeout(autoSave, 2000);
-    return () => clearTimeout(timeoutId);
-  }, [cellData, autoSaveEnabled, connectionStatus]);
-
   // Novo: limpa a tabela, mas pede confirmaÃ§Ã£o se houver dados
   function handleNovo() {
     const hasData = cellData.some(row => row.some(cell => cell !== ''));
@@ -639,19 +634,19 @@ const menuOptions = {
   'Inserir': [
     'Linha acima',
     'Linha abaixo',
-    'Coluna Ã  esquerda',
-    'Coluna Ã  direita',
-    'CÃ©lulas',
+    'Coluna á  esquerda',
+    'Coluna á  direita',
+    'Células',
     'Imagem',
-    'GrÃ¡fico',
-    'Caixa de seleÃ§Ã£o',
+    'Gráfico',
+    'Caixa de seleção',
     'Link',
-    'ComentÃ¡rio',
+    'Comentário',
     'Nota'
   ],
   'Formatar': [
     'Negrito',
-    'ItÃ¡lico',
+    'Itálico',
     'Sublinhado',
     'Tachado',
     'Cor do texto',
@@ -661,21 +656,21 @@ const menuOptions = {
     'Formatar como nÃºmero',
     'Alinhar',
     'Quebra de texto',
-    'Mesclar cÃ©lulas'
+    'Mesclar células'
   ],
   'Dados': [
     'Classificar',
     'Criar filtro',
-    'ValidaÃ§Ã£o de dados',
+    'Validação de dados',
     'Remover duplicatas',
     'Dividir texto em colunas',
     'Proteger intervalo'
   ],
   'Ferramentas': [
-    'Criar formulÃ¡rio',
+    'Criar formulário',
     'Macros',
     'Editor de scripts',
-    'RevisÃ£o',
+    'Revisão',
     'Acessibilidade'
   ],
 };
@@ -700,7 +695,7 @@ const menuItems = Object.keys(menuOptions);
     setNumRows(r => r + 1);
     setSelectedCell({ row: row + 1, col: selectedCell.col });
   }
-  // Inserir coluna Ã  esquerda
+  // Inserir coluna Ã  esquerda
   function handleInserirColunaEsquerda() {
     const { col } = selectedCell;
     const newData = cellData.map(row => {
@@ -712,7 +707,7 @@ const menuItems = Object.keys(menuOptions);
     setNumCols(c => c + 1);
     setSelectedCell({ row: selectedCell.row, col: col });
   }
-  // Inserir coluna Ã  direita
+  // Inserir coluna Ã  direita
   function handleInserirColunaDireita() {
     const { col } = selectedCell;
     const newData = cellData.map(row => {
@@ -762,8 +757,8 @@ const menuItems = Object.keys(menuOptions);
   const insertMenuHandlers = {
     'Linha acima': handleInserirLinhaAcima,
     'Linha abaixo': handleInserirLinhaAbaixo,
-    'Coluna Ã  esquerda': handleInserirColunaEsquerda,
-    'Coluna Ã  direita': handleInserirColunaDireita,
+    'Coluna Ã  esquerda': handleInserirColunaEsquerda,
+    'Coluna Ã  direita': handleInserirColunaDireita,
     'CÃ©lulas': handleInserirCelula,
     'Imagem': handleInserirImagem,
     'GrÃ¡fico': handleInserirGrafico,
@@ -1187,27 +1182,8 @@ const menuItems = Object.keys(menuOptions);
     'Proteger intervalo': handleProtegerIntervalo
   };
 
-  // Expande linhas/colunas ao rolar para o fim
+  // Expande linhas/colunas ao rolar para o fim - REMOVIDO (substituído pela versão otimizada abaixo)
   const cellsContainerRef = useRef(null);
-  function handleCellsScroll(e) {
-    const el = e.target;
-    // Se chegou perto do fim das colunas, adiciona mais
-    if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 50) {
-      setNumCols(c => {
-        if (c < 500) return c + 10; // Limite de seguranÃ§a
-        return c;
-      });
-      setCellData(data => data.map(row => [...row, ...Array(10).fill('')]));
-    }
-    // Se chegou perto do fim das linhas, adiciona mais
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
-      setNumRows(r => {
-        if (r < 1000) return r + 20; // Limite de seguranÃ§a
-        return r;
-      });
-      setCellData(data => [...data, ...Array(20).fill().map(() => Array(numCols).fill(''))]);
-    }
-  }
 
   // Refs para inputs das cÃ©lulas
   const cellRefs = useRef({});
@@ -1299,6 +1275,60 @@ const menuItems = Object.keys(menuOptions);
     setShowChartModal(true);
   }
 
+  // Virtualização para melhorar performance
+  const [visibleRange, setVisibleRange] = useState({ startRow: 0, endRow: 50, startCol: 0, endCol: 26 });
+  const containerRef = useRef(null);
+
+  // Calcular células visíveis baseado no scroll
+  const updateVisibleRange = useCallback((scrollTop, scrollLeft, containerHeight, containerWidth) => {
+    const rowHeight = 28;
+    const colWidth = 100;
+    const headerHeight = 28;
+    const headerWidth = 40;
+
+    const startRow = Math.max(0, Math.floor((scrollTop - headerHeight) / rowHeight));
+    const endRow = Math.min(numRows - 1, Math.floor((scrollTop + containerHeight - headerHeight) / rowHeight) + 1);
+    const startCol = Math.max(0, Math.floor((scrollLeft - headerWidth) / colWidth));
+    const endCol = Math.min(numCols - 1, Math.floor((scrollLeft + containerWidth - headerWidth) / colWidth) + 1);
+
+    setVisibleRange({ startRow, endRow, startCol, endCol });
+  }, [numRows, numCols]);
+
+  // Otimizar scroll handler
+  const handleCellsScroll = useCallback((e) => {
+    const el = e.target;
+    updateVisibleRange(el.scrollTop, el.scrollLeft, el.clientHeight, el.clientWidth);
+
+    // Lógica de expansão dinâmica otimizada
+    if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 50) {
+      setNumCols(c => {
+        if (c < 100) return c + 10; // Limite de segurança
+        return c;
+      });
+      setCellData(data => data.map(row => [...row, ...Array(10).fill('')]));
+    }
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
+      setNumRows(r => {
+        if (r < 1000) return r + 20; // Limite de segurança
+        return r;
+      });
+      setCellData(data => [...data, ...Array(20).fill().map(() => Array(numCols).fill(''))]);
+    }
+  }, [updateVisibleRange, numCols, numRows]);
+
+  // Memoizar células visíveis
+  const visibleCells = useMemo(() => {
+    const cells = [];
+    for (let r = visibleRange.startRow; r <= visibleRange.endRow; r++) {
+      for (let c = visibleRange.startCol; c <= visibleRange.endCol; c++) {
+        if (!hiddenRows.includes(r) && !hiddenCols.includes(c)) {
+          cells.push({ row: r, col: c });
+        }
+      }
+    }
+    return cells;
+  }, [visibleRange, hiddenRows, hiddenCols]);
+
   return (
     <div className="main-content">
       <input
@@ -1371,20 +1401,30 @@ const menuItems = Object.keys(menuOptions);
         <button className="icon-btn" title="Cor de preenchimento"><MdFormatColorFill /></button>
         <button className="icon-btn" title="Bordas"><MdBorderAll /></button>
         <button className="icon-btn" title="Mesclar cÃ©lulas"><MdMergeType /></button>
-        <button className="icon-btn" title="Alinhar Ã  esquerda"><MdFormatAlignLeft /></button>
+        <button className="icon-btn" title="Alinhar Ã  esquerda"><MdFormatAlignLeft /></button>
         <button className="icon-btn" title="Alinhar ao centro"><MdFormatAlignCenter /></button>
-        <button className="icon-btn" title="Alinhar Ã  direita"><MdFormatAlignRight /></button>
+        <button className="icon-btn" title="Alinhar Ã  direita"><MdFormatAlignRight /></button>
         <button className="icon-btn" title="Ajuste de texto"><MdWrapText /></button>
         <button className="icon-btn" title="Inserir link"><MdInsertLink /></button>
         <button className="icon-btn" title="Inserir comentÃ¡rio"><MdInsertComment /></button>
         <button className="icon-btn" title="Inserir grÃ¡fico"><MdInsertChart /></button>
         <button className="icon-btn" title="Filtro"><MdFilterList /></button>
       </div>
-      {/* Planilha estilo Excel */}
+      {/* Planilha estilo Excel - OTIMIZADA com virtualização */}
       <div className="excel-container" style={{ position: 'relative', border: '1px solid #ccc', overflow: 'hidden' }}>
-        <div style={{ width: '100%', height: '100%', overflow: 'auto', position: 'relative' }} onScroll={handleCellsScroll}>
-          <div style={{ minWidth: columns.length * 100 + 40, minHeight: (rows.length + 1) * 28, position: 'relative', width: 'fit-content', height: 'fit-content' }}>
-            {/* CabeÃ§alho de colunas e nÃºmeros de linha juntos */}
+        <div 
+          ref={containerRef}
+          style={{ width: '100%', height: '100%', overflow: 'auto', position: 'relative' }} 
+          onScroll={handleCellsScroll}
+        >
+          <div style={{ 
+            minWidth: columns.length * 100 + 40, 
+            minHeight: (rows.length + 1) * 28, 
+            position: 'relative', 
+            width: 'fit-content', 
+            height: 'fit-content' 
+          }}>
+            {/* Cabeçalho de colunas e números de linha juntos */}
             <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 3 }}>
               {/* Canto superior esquerdo */}
               <div style={{ width: 40, height: 28, background: '#e0e0e0', borderRight: '1.5px solid #bdbdbd', borderBottom: '1.5px solid #bdbdbd', position: 'sticky', left: 0, zIndex: 4 }}></div>
@@ -1393,12 +1433,16 @@ const menuItems = Object.keys(menuOptions);
                 <div key={col} style={{ width: 100, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', borderRight: '1px solid #ccc', borderBottom: '1.5px solid #bdbdbd', background: '#f5f5f5', position: 'relative', zIndex: 3, boxSizing: 'border-box' }}>{col}</div>
               ))}
             </div>
-            {/* Linhas da planilha */}
-            {rows.map((row, rIdx) => (
-              hiddenRows.includes(rIdx) ? null :
-              <div key={rIdx} style={{ display: 'flex' }}>
-                {/* NÃºmero da linha sticky Ã  esquerda */}
-                <div style={{ width: 40, minWidth: 40, maxWidth: 40, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', borderRight: '1.5px solid #bdbdbd', borderBottom: '1px solid #ccc', background: '#f5f5f5', position: 'sticky', left: 0, zIndex: 2 }}>{row}</div>
+            
+            {/* Linhas da planilha - OTIMIZADAS para renderizar apenas células visíveis */}
+            {rows.slice(visibleRange.startRow, visibleRange.endRow + 1).map((row, rowIndex) => {
+              const rIdx = visibleRange.startRow + rowIndex;
+              if (hiddenRows.includes(rIdx)) return null;
+              
+              return (
+                <div key={rIdx} style={{ display: 'flex' }}>
+                  {/* Número da linha sticky à esquerda */}
+                  <div style={{ width: 40, minWidth: 40, maxWidth: 40, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', borderRight: '1.5px solid #bdbdbd', borderBottom: '1px solid #ccc', background: '#f5f5f5', position: 'sticky', left: 0, zIndex: 2 }}>{row}</div>
                 {columns.map((col, cIdx) => {
                   if (hiddenCols.includes(cIdx)) return null;
                   const cellKey = `${rIdx}-${cIdx}`;
@@ -1524,8 +1568,8 @@ const menuItems = Object.keys(menuOptions);
                   );
                 })}
               </div>
-            ))}
-            {/* RetÃ¢ngulo de seleÃ§Ã£o mÃºltipla - sÃ³ se anchor e end forem diferentes */}
+            )})}
+            {/* Retângulo de seleção múltipla - só se anchor e end forem diferentes */}
             {selection.anchor && selection.end && (selection.anchor.row !== selection.end.row || selection.anchor.col !== selection.end.col) && (() => {
               const minRow = Math.min(selection.anchor.row, selection.end.row);
               const maxRow = Math.max(selection.anchor.row, selection.end.row);

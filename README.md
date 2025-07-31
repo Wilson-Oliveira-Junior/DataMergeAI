@@ -12,6 +12,11 @@ DataMergeAI é uma plataforma de planilhas inteligente, inspirada no Excel/Googl
 - Persistência automática no navegador (localStorage)
 - Envio de planilhas por e-mail (backend)
 
+### Funcionalidades de IA
+- Integração com APIs de IA para análise de dados
+- Sugestões inteligentes de fórmulas
+- Autocompletar baseado em padrões
+
 ## Estrutura do Projeto
 - **backend/**: API e processamento com Django
 - **frontend/**: Interface do usuário com React (Vite)
